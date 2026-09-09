@@ -50,17 +50,17 @@ function reset() {
   game={
     running:false,time:0,d:0,scroll:0,x:W/2+76,cameraX:0,lean:0,
     boost:1,burst:0,setback:0,mainWoman:0,mainRush:0,forcedTimer:0,
-    rushTimer:12,rushWarned:false,monsterTimer:1.3,pickupTimer:1.8,trafficTimer:1,
+    rushTimer:35,rushWarned:false,monsterTimer:10,pickupTimer:1.8,trafficTimer:1,pedestrianTimer:.5,
     memoryTimer:0,nextMemory:24,memory:null,monsters:[],pickups:[],traffic:[],
-    particles:[],shake:0,red:0,biome:0,loopCount:0,storyIndex:0
+    particles:[],pedestrians:[],shake:0,red:0,biome:0,loopCount:0,storyIndex:0
   };
   memory.classList.add('hidden');memoryPhase.classList.remove('hidden');doors.classList.add('hidden');
   death.classList.add('hidden');eventEl.textContent='';
   // Start in a populated street instead of waiting for the first traffic to arrive.
   for(let i=0;i<5;i++){
-    spawnTraffic();
-    game.traffic[game.traffic.length-1].y=-80+i*146;
+    spawnTraffic(-80+i*146);
   }
+  for(let i=0;i<28;i++)spawnPedestrian(rand(-50,H+50));
   updateHUD();draw();
 }
 function isHighway(){return game.d<biomes[0][2];}
@@ -69,7 +69,6 @@ function updateBiome(){
   const next=currentBiome();
   if(next!==game.biome){
     game.biome=next;showEvent(biomes[next][0],2);
-    if(next!==0)for(const car of game.traffic){car.lane=clamp(car.lane,-86,86);car.x=car.road+car.lane;}
   }
 }
 function updateHUD(){
@@ -81,18 +80,44 @@ function updateHUD(){
 function spawnBoost(){
   game.pickups.push({x:isHighway()?rand(120,520):game.x+rand(-150,150),y:-35,pulse:rand(0,6)});
 }
-function spawnTraffic(){
+function spawnTraffic(screenY=-160){
   if(game.traffic.length>=12)return;
-  const road=W/2+Math.round((game.x-W/2)/960)*960;
-  const lane=pick(isHighway()?[-180,-68,68,180]:[-86,86]);
-  game.traffic.push({road,lane,x:road+lane,y:-180,
+  const near=RoadNetwork.closest(game.cameraX+rand(40,W-40),screenY-game.scroll);
+  const direction=pick([-1,1]);
+  game.traffic.push({segment:near.segment,t:near.t,direction,x:near.x,y:near.y+game.scroll,
+    angle:Math.atan2(near.dx*direction,-near.dy*direction),
     tone:pick(['#d84466','#f2ba44','#8db6b6','#755c80','#d8854e']),
-    model:pick([0,0,0,1,2]),speed:rand(.45,.72)});
+    model:pick([0,0,0,1,2]),speed:rand(35,65)});
+}
+function updateTraffic(dt){
+  for(const v of game.traffic){
+    let s=v.segment,length=Math.hypot(s.x2-s.x1,s.y2-s.y1);
+    v.t+=v.direction*v.speed*dt/length;
+    if(v.t<0||v.t>1){
+      const x=v.t<0?s.x1:s.x2,y=v.t<0?s.y1:s.y2;
+      const links=RoadNetwork.segments(x-2,y-2,x+2,y+2).filter(n=>n.id!==s.id&&(Math.hypot(n.x1-x,n.y1-y)<2||Math.hypot(n.x2-x,n.y2-y)<2));
+      if(links.length){s=pick(links);v.segment=s;v.direction=Math.hypot(s.x1-x,s.y1-y)<2?1:-1;v.t=v.direction===1?0:1;}
+      else{v.t=clamp(v.t,0,1);v.direction*=-1;}
+    }
+    length=Math.hypot(s.x2-s.x1,s.y2-s.y1);
+    const dx=(s.x2-s.x1)/length,dy=(s.y2-s.y1)/length;
+    v.x=lerp(s.x1,s.x2,v.t)-dy*v.direction*17;
+    v.y=lerp(s.y1,s.y2,v.t)+dx*v.direction*17+game.scroll;
+    v.angle=Math.atan2(dx*v.direction,-dy*v.direction);
+  }
+  game.traffic=game.traffic.filter(v=>v.y<H+180&&v.y>-360&&Math.abs(v.x-game.cameraX-W/2)<W);
+}
+function spawnPedestrian(screenY=-90){
+  if(game.pedestrians.length>=40)return;
+  const near=RoadNetwork.closest(game.cameraX+rand(-60,W+60),screenY-game.scroll);
+  const side=pick([-1,1]),offset=near.segment.width/2+rand(15,42),pace=rand(8,23)*pick([-1,1]);
+  game.pedestrians.push({x:near.x-near.dy*side*offset,y:near.y+near.dx*side*offset+game.scroll,
+    vx:near.dx*pace,vy:near.dy*pace,id:Math.floor(rand(0,40)),phase:rand(0,6)});
 }
 function useBoost(){
   if(!game.running||game.memoryTimer!==0||!game.boost||game.burst>0)return;
   game.boost=0;game.burst=2.8;game.mainRush=0;game.forcedTimer=0;game.setback=0;
-  game.rushTimer=Math.max(game.rushTimer,10);
+  game.rushTimer=Math.max(game.rushTimer,25);
   // Boost must be activated before contact. Its initial escape pulse clears nearby threats.
   for(const m of game.monsters)if(m.kind==='loop'||Math.abs(m.y-PLAYER_Y)<180)m.life=0;
   game.shake=.15;showEvent('BOOST — KEEP MOVING',1.1);
@@ -100,21 +125,23 @@ function useBoost(){
   updateHUD();
 }
 function spawnMonster(forceKind=null){
-  if(game.monsters.length>=9)return;
+  if(game.monsters.length>=3)return;
   const available=Math.min(monsterTypes.length,8+Math.floor(game.d/60));
   let id=Math.floor(Math.random()*available);
-  const pool=forceKind==='disguise'?disguise:forceKind==='chase'?chase:forceKind==='loop'?loopers:null;
+  const pool=forceKind==='chase'?chase:forceKind==='loop'?loopers:null;
   if(pool){const list=[...pool].filter(n=>n<available);if(list.length)id=pick(list);}
   const kind=chase.has(id)?'chase':loopers.has(id)?'loop':'always';
+  const hidden=forceKind==='disguise'||kind==='loop'||Math.random()<.92;
   game.monsters.push({
     id,name:monsterTypes[id],x:isHighway()?rand(112,528):game.x+rand(-210,210),
-    y:-80,age:0,kind,revealed:!disguise.has(id)&&kind!=='loop',repeats:kind==='loop'?2:0,
+    y:-80,age:0,kind,disguised:hidden,revealed:!hidden,revealProgress:hidden?0:1,repeats:kind==='loop'?2:0,
+    walkVX:rand(-14,14),walkVY:rand(-22,22),
     speed:rand(26,56)+smooth(0,2400,game.d)*18,scale:1,phase:rand(0,6),life:1
   });
 }
 function encounter(){
-  // Every encounter slot produces a creature; the old chance roll made long empty stretches.
-  spawnMonster(Math.random()<.45?'disguise':null);
+  // Many ordinary pedestrians, with an occasional disguised creature among them.
+  spawnMonster();
 }
 function startMemoryGame(){
   if(!game.running||game.memoryTimer!==0||game.forcedTimer>0)return;
@@ -159,7 +186,7 @@ function mainWomanRush(){
   showEvent('SHE IS COMING — GET READY TO BOOST',2);
 }
 function updateMainWoman(dt,danger){
-  game.mainWoman=smooth(180,1350,game.d);
+  game.mainWoman=smooth(600,1900,game.d);
   if(game.forcedTimer>0){
     game.forcedTimer=Math.max(0,game.forcedTimer-dt);
     game.mainRush=1-game.forcedTimer/5.5;
@@ -169,7 +196,7 @@ function updateMainWoman(dt,danger){
     if(game.forcedTimer===0)endRun('SHE CAUGHT YOU');
   }else{
     game.rushTimer-=dt;
-    if(game.rushTimer<=0){game.rushTimer=rand(14,22)-danger*3;mainWomanRush();}
+    if(game.rushTimer<=0){game.rushTimer=rand(35,55)-danger*5;mainWomanRush();}
   }
 }
 function update(dt){
@@ -210,27 +237,32 @@ function update(dt){
   if(game.trafficTimer<=0){
     spawnTraffic();game.trafficTimer=game.biome===0?rand(1.4,2.4):rand(2.5,4.5);
   }
-  for(const car of game.traffic)car.y+=speed*car.speed*dt;
-  game.traffic=game.traffic.filter(v=>v.y<H+150);
+  updateTraffic(dt);
+  for(const p of game.pedestrians){p.x+=p.vx*dt;p.y+=(speed+p.vy)*dt;p.phase+=dt*5;}
+  game.pedestrians=game.pedestrians.filter(p=>p.y<H+100&&p.y>-300&&Math.abs(p.x-game.cameraX-W/2)<W*.9);
+  game.pedestrianTimer-=dt;
+  if(game.pedestrianTimer<=0){spawnPedestrian();spawnPedestrian();game.pedestrianTimer=rand(.45,.8);}
   game.monsterTimer-=dt;
-  if(game.monsterTimer<=0){encounter();game.monsterTimer=rand(1.7,2.6)-danger*.55;}
+  if(game.monsterTimer<=0){encounter();game.monsterTimer=rand(12,18)-danger*3;}
   game.nextMemory-=dt;
   if(game.nextMemory<=0)startMemoryGame();
   if(game.memoryTimer!==0){updateHUD();return;}
   for(const m of game.monsters){
     if(m.life<=0)continue;
     m.age+=dt;
-    m.y+=(speed*.58+m.speed-(game.burst>0?220:0))*dt;
-    if(m.kind==='chase'||(m.revealed&&disguise.has(m.id))){
+    if(!m.revealed){m.x+=m.walkVX*dt;m.y+=(speed+m.walkVY)*dt;}
+    else m.y+=(speed*.58+m.speed-(game.burst>0?220:0))*dt;
+    if(m.revealed&&(m.kind==='chase'||m.disguised)){
       m.x+=clamp(game.x-m.x,-1,1)*(24+danger*18)*dt;
     }
-    if(!m.revealed&&m.y>H*.38){
+    if(!m.revealed&&m.y>H*.55){
       m.revealed=true;game.red=Math.max(game.red,.24);
       if(m.kind==='loop'){game.loopCount++;showEvent('THAT PERSON AGAIN',1);}
       else if(!game.forcedTimer)showEvent(m.name.toUpperCase(),1);
     }
+    if(m.revealed)m.revealProgress=Math.min(1,m.revealProgress+dt*2.5);
     if(m.kind==='loop'&&m.y>H+100&&m.repeats>0){
-      m.repeats--;m.y=-80;m.revealed=false;game.scroll=Math.max(0,game.scroll-180);
+      m.repeats--;m.y=-80;m.revealed=false;m.revealProgress=0;game.scroll=Math.max(0,game.scroll-180);
       if(!game.forcedTimer)showEvent('THE ROAD REPEATS — BOOST TO BREAK IT',1.5);
     }
     // Tight torso hitboxes match the pixel sprites. Holding a boost is not protection.
@@ -245,11 +277,12 @@ function update(dt){
   game.particles=game.particles.filter(p=>p.life>0);
   updateHUD();
 }
-function draw(){if(game)PixelArt.draw(ctx,game,W,H);}
+function draw(){if(game){PixelArt.draw(ctx,game,W,H);MonsterArt.draw(game,W,H);}}
 function loop(t){
   const dt=Math.min(.04,(t-last)/1000||0);last=t;update(dt);draw();raf=requestAnimationFrame(loop);
 }
 function begin(){
+  if(!MonsterArt.loaded)return;
   reset();game.running=true;startScreen.classList.add('hidden');death.classList.add('hidden');
   last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);
 }
@@ -263,4 +296,6 @@ addEventListener('keydown',e=>{
 });
 addEventListener('keyup',e=>{keys[e.key.length===1?e.key.toLowerCase():e.key]=false;});
 addEventListener('blur',()=>{for(const key of Object.keys(keys))delete keys[key];});
+start.disabled=true;start.textContent='LOADING CREATURES…';
+MonsterArt.ready.then(()=>{start.disabled=false;start.textContent='START DRIVE';draw();}).catch(()=>{start.textContent='RELOAD TO RETRY';eventEl.textContent='Creature artwork could not load. Refresh to retry.';});
 reset();
