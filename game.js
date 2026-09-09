@@ -47,6 +47,12 @@ const monsterTypes = [
 const disguise = new Set([0,2,9,10,11,18,24,26,28,32,37]);
 const chase = new Set([1,4,8,13,16,22,25,29,33,38]);
 const loopers = new Set([6,7,15,20,23,31,35]);
+const storyBeats = [
+  [650, 'A WOMAN IS WALKING BEHIND YOU'], [2600, 'THE CITY ENDS. SHE DOES NOT.'],
+  [5600, 'THE TREES ARE WATCHING THE ROAD'], [9100, 'YOU HAVE DRIVEN HERE BEFORE'],
+  [12400, 'THE SKY HAS TURNED TO RUST'], [15200, 'DON’T LOOK AT THE WINDOWS'],
+  [18000, 'WELCOME BACK TO THE HOLLOW']
+];
 
 function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 function rand(a, b) { return a + Math.random() * (b - a); }
@@ -73,6 +79,7 @@ function reset() {
     memoryTimer: 0,
     memory: null,
     monsters: [],
+    traffic: [],
     pickups: [],
     particles: [],
     marks: Array.from({ length: 30 }, (_, i) => i * 45),
@@ -80,6 +87,8 @@ function reset() {
     red: 0,
     biome: 0,
     loopCount: 0,
+    forcedTimer: 0,
+    storyIndex: 0,
     worldSeed: Math.random() * 10000
   };
   memory.classList.add('hidden');
@@ -115,6 +124,14 @@ function spawnBoost() {
     y: -35,
     pulse: rand(0, Math.PI * 2)
   });
+}
+
+function spawnTraffic() {
+  if (!isHighway() && game.biome < 3) return;
+  const g = roadGeometry();
+  const lane = pick([-.34, .34]);
+  game.traffic.push({ x: g.centerFar + g.farHalf * lane, y: rand(-190, -45), lane,
+    tone: pick(['#cb6250', '#d7d2bc', '#4b7890', '#30333b']), speed: rand(.64, .88), phase: Math.random() * 8 });
 }
 
 function useBoost() {
@@ -217,6 +234,8 @@ function chooseDoor(value) {
 
 function mainWomanRush() {
   game.mainRush = 1;
+  game.forcedTimer = 4.2;
+  if (!game.boost) spawnBoost();
   game.red = Math.max(game.red, .75);
   game.shake = Math.max(game.shake, .55);
   showEvent('SHE IS CLOSER', 1.6);
@@ -226,7 +245,7 @@ function updateMainWoman(dt, danger) {
   // Her visual transformation takes most of the first half of the journey.
   game.mainWoman = smooth(2200, 10500, game.d);
   if (game.mainRush > 0) game.mainRush = Math.max(0, game.mainRush - dt * .7);
-  if (Math.random() < dt * (.004 + danger * .012)) mainWomanRush();
+  if (Math.random() < dt * (.012 + danger * .022)) mainWomanRush();
   // A boost always breaks the rush. There is deliberately no death state.
   if (game.burst > 0) game.mainRush = 0;
 }
@@ -255,17 +274,25 @@ function update(dt) {
     game.x = clamp(game.x, 18, W - 18);
   }
 
+  // Distance progresses at a real road-trip pace: the first visit to the Hollow is roughly 20 minutes.
+  // Visual scroll is deliberately faster so the tilted road still feels kinetic.
+  const distanceRate = 13 + danger * 6 + (game.burst > 0 ? 17 : 0);
   const speed = 118 + danger * 48 + (game.burst > 0 ? 190 : 0);
-  game.d += speed * dt;
+  game.d += distanceRate * dt;
   game.burst = Math.max(0, game.burst - dt);
   game.shake = Math.max(0, game.shake - dt * 1.7);
   game.red = Math.max(0, game.red - dt * 1.15);
   updateBiome();
   updateMainWoman(dt, danger);
-
-  for (const mark of game.marks) {
-    mark += speed * dt;
+  if (game.forcedTimer > 0) {
+    game.forcedTimer -= dt;
+    if (game.forcedTimer < 2.3 && game.mainRush > 0 && game.boost) showEvent('BOOST NOW', .75);
+    if (game.forcedTimer <= 0) { game.mainRush = 0; showEvent('SHE FALLS BACK', 1.2); }
   }
+  if (game.storyIndex < storyBeats.length && game.d >= storyBeats[game.storyIndex][0]) {
+    showEvent(storyBeats[game.storyIndex][1], 2.5); game.storyIndex++;
+  }
+
   for (let i = 0; i < game.marks.length; i++) {
     game.marks[i] += speed * dt;
     if (game.marks[i] > H + 50) game.marks[i] = -40;
@@ -285,6 +312,14 @@ function update(dt) {
   });
 
   if (Math.random() < dt * (.055 + danger * .12)) spawnBoost();
+
+  if (Math.random() < dt * (game.biome === 0 ? .38 : .13)) spawnTraffic();
+  for (const car of game.traffic) {
+    car.y += speed * car.speed * dt;
+    const depth = clamp((car.y - 70) / (H - 70), 0, 1), g = roadGeometry();
+    car.x = lerp(g.centerFar, g.centerNear, depth) + lerp(g.farHalf, g.bottomHalf, depth) * car.lane;
+  }
+  game.traffic = game.traffic.filter(car => car.y < H + 120);
 
   game.monsterTimer -= dt;
   if (game.monsterTimer <= 0) {
@@ -397,6 +432,16 @@ function drawRoad() {
     ctx.fillRect(center - w / 2 - half * .34, y, w, h);
     ctx.fillRect(center - w / 2 + half * .34, y, w, h);
   }
+  // Road furniture grows toward the rider, strengthening the pitched camera perspective.
+  for (let i = 0; i < 25; i++) {
+    const t = ((i * .173 + game.d / 620) % 1 + 1) % 1;
+    const p = t * t, y = g.horizon + p * (H - g.horizon);
+    const c = lerp(g.centerFar, g.centerNear, p), half = lerp(g.farHalf, g.bottomHalf, p);
+    const side = i % 2 ? -1 : 1;
+    ctx.fillStyle = i % 5 ? '#7b7a68' : '#e1ba5c';
+    ctx.fillRect(c + side * (half + 5), y, 2 + p * 5, 3 + p * 10);
+    if (i % 3 === 0) { ctx.fillStyle = '#1d252b'; ctx.fillRect(c + side * (half + 14 + p * 20), y - 4 - p * 20, 3 + p * 5, 4 + p * 20); }
+  }
 }
 
 function drawPixelCity() {
@@ -404,20 +449,23 @@ function drawPixelCity() {
   ctx.fillRect(0, 0, W, H);
   const g = roadGeometry();
   // Far buildings are small; nearer buildings grow, giving the scene a 30-degree pitched look.
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 28; i++) {
     const side = i % 2 ? 1 : -1;
     const depth = (i * .19 + (game.d * .0008)) % 1;
     const y = 90 + depth * 500;
-    const h = 25 + depth * 125;
-    const w = 30 + depth * 55;
+    const h = 25 + depth * 142;
+    const w = 25 + depth * 62;
     const center = lerp(g.centerFar, g.centerNear, depth);
     const x = center + side * (g.farHalf + 35 + depth * 180);
-    ctx.fillStyle = i % 3 === 0 ? '#536577' : '#657584';
+    ctx.fillStyle = i % 3 === 0 ? '#536577' : i % 3 === 1 ? '#657584' : '#3f5364';
     ctx.fillRect(x - w/2, y - h, w, h);
     ctx.fillStyle = '#e7d7a1';
-    for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) {
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 3; c++) {
       if ((r + c + i) % 2 === 0) ctx.fillRect(x - w/2 + 7 + c * 17, y - h + 9 + r * 22, 6, 9);
     }
+    ctx.fillStyle = '#283744';
+    ctx.fillRect(x - w/2 + 4, y-h-5, Math.max(6,w*.3), 5);
+    if (i % 4 === 0) { ctx.fillStyle = '#c45b45'; ctx.fillRect(x + w*.18, y-h*.62, 4+depth*5, 11+depth*9); }
   }
   drawRoad();
 }
@@ -564,6 +612,19 @@ function drawBike() {
   ctx.fillStyle = '#e1d46b';
   ctx.fillRect(-5, 8, 10, 5);
   ctx.restore();
+}
+
+function drawTraffic() {
+  for (const car of game.traffic) {
+    const depth = clamp((car.y - 70) / (H - 70), 0, 1), s = .34 + depth * .9;
+    ctx.save(); ctx.translate(Math.round(car.x), Math.round(car.y)); ctx.scale(s, s);
+    ctx.fillStyle = '#11151a'; ctx.fillRect(-17, -27, 34, 54);
+    ctx.fillStyle = car.tone; ctx.fillRect(-14, -23, 28, 43);
+    ctx.fillStyle = '#9ec1d0'; ctx.fillRect(-10, -17, 20, 14);
+    ctx.fillStyle = '#d95b47'; ctx.fillRect(-10, 15, 6, 5); ctx.fillRect(4, 15, 6, 5);
+    ctx.fillStyle = '#0b0d0f'; ctx.fillRect(-19, -13, 4, 17); ctx.fillRect(15, -13, 4, 17);
+    ctx.restore();
+  }
 }
 
 function drawHumanSilhouette(m, alpha) {
@@ -750,6 +811,7 @@ function draw() {
   drawWorld();
   drawMainWoman();
   for (const p of game.pickups) drawBoost(p);
+  drawTraffic();
   drawMonsters();
   drawBike();
   for (const p of game.particles) {
