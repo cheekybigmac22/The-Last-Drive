@@ -67,9 +67,13 @@ function showEvent(text, seconds = 1.8) {
 }
 
 function reset() {
+  clearTimeout(eventTimeout);
+  for (const key of Object.keys(keys)) delete keys[key];
   game = {
     running: false,
     d: 0,
+    scroll: 0,
+    setback: 0,
     x: W / 2,
     boost: 0,
     burst: 0,
@@ -139,6 +143,13 @@ function useBoost() {
   game.boost = 0;
   game.burst = 2.8;
   game.mainRush = 0;
+  game.forcedTimer = 0;
+  game.setback = 0;
+  for (const m of game.monsters) {
+    if (m.kind === 'loop' || Math.abs(m.y - (H - 115)) < 160) {
+      m.life = 0;
+    }
+  }
   game.shake = .25;
   showEvent('BOOST', 1.1);
   for (let i = 0; i < 18; i++) {
@@ -164,9 +175,10 @@ function spawnMonster(forceKind = null) {
     y: -110,
     age: 0,
     kind,
-    revealed: !disguise.has(id),
+    revealed: !disguise.has(id) && kind !== 'loop',
+    repeats: kind === 'loop' ? 2 : 0,
     revealDistance: rand(0, 1),
-    speed: rand(30, 78) + game.d * .0012,
+    speed: rand(30, 78) + Math.min(game.d, 26000) * .0012,
     scale: rand(.78, 1.18),
     phase: rand(0, Math.PI * 2),
     alpha: 0,
@@ -183,7 +195,7 @@ function encounter() {
 }
 
 function startMemoryGame() {
-  if (!game.running || game.memoryTimer !== 0) return;
+  if (!game.running || game.memoryTimer !== 0 || game.forcedTimer > 0) return;
   const d = game.d;
   const digits = d < 1500 ? 2 : d < 4500 ? 3 : d < 8000 ? 4 : d < 11500 ? 5 : d < 14500 ? 6 : 7;
   let answer = String(Math.floor(rand(10 ** (digits - 1), 10 ** digits)));
@@ -204,6 +216,7 @@ function showMemoryDoors() {
   if (!game.memory) return;
   game.memoryTimer = -1;
   memoryPhase.classList.add('hidden');
+  memoryNumber.textContent = '';
   doors.classList.remove('hidden');
   const a = game.memory.answer;
   const b = game.memory.fake;
@@ -223,19 +236,26 @@ function chooseDoor(value) {
   game.memoryTimer = 0;
   memory.classList.add('hidden');
   if (correct) {
+    game.boost = 1;
     showEvent('YOU REMEMBERED', 1.2);
   } else {
     // The player can never die from the memory test. It is a scare, not a game over.
     game.red = .9;
     game.shake = .7;
+    game.setback = 2;
     showEvent('WRONG — KEEP DRIVING', 1.8);
   }
 }
 
 function mainWomanRush() {
-  game.mainRush = 1;
-  game.forcedTimer = 4.2;
-  if (!game.boost) spawnBoost();
+  if (game.forcedTimer > 0 || game.burst > 0 || game.memoryTimer !== 0) return;
+  game.mainRush = .25;
+  game.forcedTimer = 6;
+  game.rushWarned = false;
+  if (!game.boost) {
+    // This pickup reaches the rider in under two seconds, before the chase deadline.
+    game.pickups.push({ x: game.x, y: H - 280, pulse: 0 });
+  }
   game.red = Math.max(game.red, .75);
   game.shake = Math.max(game.shake, .55);
   showEvent('SHE IS CLOSER', 1.6);
@@ -244,10 +264,23 @@ function mainWomanRush() {
 function updateMainWoman(dt, danger) {
   // Her visual transformation takes most of the first half of the journey.
   game.mainWoman = smooth(2200, 10500, game.d);
-  if (game.mainRush > 0) game.mainRush = Math.max(0, game.mainRush - dt * .7);
-  if (Math.random() < dt * (.012 + danger * .022)) mainWomanRush();
-  // A boost always breaks the rush. There is deliberately no death state.
-  if (game.burst > 0) game.mainRush = 0;
+  if (game.forcedTimer > 0) {
+    game.forcedTimer = Math.max(0, game.forcedTimer - dt);
+    game.mainRush = clamp(1 - game.forcedTimer / 8, .25, 1);
+    if (game.forcedTimer <= 3 && !game.rushWarned) {
+      game.rushWarned = true;
+      showEvent(game.boost ? 'BOOST NOW — SPACE / SHIFT' : 'COLLECT THE BOOST', 3);
+    }
+    if (game.forcedTimer === 0) {
+      game.mainRush = 0;
+      game.setback = 2.5;
+      game.red = .8;
+      game.shake = .7;
+      showEvent('SHE CAUGHT UP — KEEP DRIVING', 2);
+    }
+  } else if (Math.random() < dt * (.012 + danger * .022)) {
+    mainWomanRush();
+  }
 }
 
 function update(dt) {
@@ -274,21 +307,19 @@ function update(dt) {
     game.x = clamp(game.x, 18, W - 18);
   }
 
-  // Distance progresses at a real road-trip pace: the first visit to the Hollow is roughly 20 minutes.
+  // The first visit to Monster World takes roughly 20 driving minutes without boosts.
   // Visual scroll is deliberately faster so the tilted road still feels kinetic.
-  const distanceRate = 13 + danger * 6 + (game.burst > 0 ? 17 : 0);
-  const speed = 118 + danger * 48 + (game.burst > 0 ? 190 : 0);
+  const recovery = game.setback > 0 ? .5 : 1;
+  const distanceRate = (13 + danger * 6 + (game.burst > 0 ? 17 : 0)) * recovery;
+  const speed = (118 + danger * 48 + (game.burst > 0 ? 190 : 0)) * recovery;
   game.d += distanceRate * dt;
+  game.scroll += speed * dt;
+  game.setback = Math.max(0, game.setback - dt);
   game.burst = Math.max(0, game.burst - dt);
   game.shake = Math.max(0, game.shake - dt * 1.7);
   game.red = Math.max(0, game.red - dt * 1.15);
   updateBiome();
   updateMainWoman(dt, danger);
-  if (game.forcedTimer > 0) {
-    game.forcedTimer -= dt;
-    if (game.forcedTimer < 2.3 && game.mainRush > 0 && game.boost) showEvent('BOOST NOW', .75);
-    if (game.forcedTimer <= 0) { game.mainRush = 0; showEvent('SHE FALLS BACK', 1.2); }
-  }
   if (game.storyIndex < storyBeats.length && game.d >= storyBeats[game.storyIndex][0]) {
     showEvent(storyBeats[game.storyIndex][1], 2.5); game.storyIndex++;
   }
@@ -330,6 +361,7 @@ function update(dt) {
   if (game.d > 900 && Math.random() < dt * (.007 + danger * .012)) startMemoryGame();
 
   for (const m of game.monsters) {
+    if (m.life <= 0) continue;
     m.age += dt;
     m.y += (speed * .58 + m.speed) * dt;
     if (m.kind === 'chase' || (m.revealed && disguise.has(m.id))) {
@@ -347,12 +379,22 @@ function update(dt) {
       game.loopCount++;
       showEvent(game.loopCount > 1 ? 'THE SAME ONE AGAIN' : 'THAT PERSON AGAIN', 1.8);
     }
+    if (m.kind === 'loop' && m.y > H + 120 && m.repeats > 0) {
+      m.repeats--;
+      m.y = -110;
+      m.revealed = false;
+      // Replay the same stretch and stranger, without undoing biome progress.
+      game.scroll = Math.max(0, game.scroll - 240);
+      game.red = Math.max(game.red, .4);
+      showEvent('THE ROAD REPEATS — BOOST TO BREAK THE LOOP', 2.5);
+    }
   }
 
   // Monster contact is always a scare/recovery, never a death.
   for (const m of game.monsters) {
+    m.cooldown = Math.max(0, (m.cooldown || 0) - dt);
     const close = Math.abs(m.y - (H - 115)) < 125 && Math.abs(m.x - game.x) < 55;
-    if (close && (m.kind === 'chase' || disguise.has(m.id)) && !m.cooldown) {
+    if (m.life > 0 && close && m.revealed && !m.cooldown && game.burst <= 0) {
       m.cooldown = 1.5;
       game.red = Math.max(game.red, .8);
       game.shake = Math.max(game.shake, .7);
@@ -360,13 +402,12 @@ function update(dt) {
         useBoost();
         showEvent('YOU GOT AWAY', 1.4);
       } else {
-        // Push the monster behind the player and keep the run alive.
-        m.y = -180;
-        m.x = rand(80, W - 80);
+        // A collision costs momentum and sends the creature behind the rider.
+        m.y = H + 125;
+        game.setback = 1.5;
         showEvent('IT MISSED YOU', 1.4);
       }
     }
-    if (m.cooldown) m.cooldown -= dt;
   }
 
   game.monsters = game.monsters.filter(m => m.y < H + 170 && m.life > 0);
@@ -421,7 +462,7 @@ function drawRoad() {
 
   const stripes = 18;
   for (let i = 0; i < stripes; i++) {
-    const t = ((i / stripes) + (game.d % 420) / 420) % 1;
+    const t = ((i / stripes) + (game.scroll % 420) / 420) % 1;
     const perspective = t * t;
     const y = g.horizon + perspective * (H - g.horizon);
     const half = lerp(g.farHalf, g.bottomHalf, perspective);
@@ -434,7 +475,7 @@ function drawRoad() {
   }
   // Road furniture grows toward the rider, strengthening the pitched camera perspective.
   for (let i = 0; i < 25; i++) {
-    const t = ((i * .173 + game.d / 620) % 1 + 1) % 1;
+    const t = ((i * .173 + game.scroll / 620) % 1 + 1) % 1;
     const p = t * t, y = g.horizon + p * (H - g.horizon);
     const c = lerp(g.centerFar, g.centerNear, p), half = lerp(g.farHalf, g.bottomHalf, p);
     const side = i % 2 ? -1 : 1;
@@ -451,7 +492,7 @@ function drawPixelCity() {
   // Far buildings are small; nearer buildings grow, giving the scene a 30-degree pitched look.
   for (let i = 0; i < 28; i++) {
     const side = i % 2 ? 1 : -1;
-    const depth = (i * .19 + (game.d * .0008)) % 1;
+    const depth = (i * .19 + (game.scroll * .0008)) % 1;
     const y = 90 + depth * 500;
     const h = 25 + depth * 142;
     const w = 25 + depth * 62;
@@ -475,8 +516,8 @@ function drawDesert() {
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#c6a36a';
   for (let i = 0; i < 22; i++) {
-    const x = (i * 71 + game.d * .035) % (W + 70) - 35;
-    const y = 95 + ((i * 113 + game.d * .018) % (H - 80));
+    const x = (i * 71 + game.scroll * .035) % (W + 70) - 35;
+    const y = 95 + ((i * 113 + game.scroll * .018) % (H - 80));
     ctx.fillRect(x, y, 3 + (i % 3) * 2, 3);
   }
   drawRoad();
@@ -486,7 +527,7 @@ function drawJungle() {
   ctx.fillStyle = '#244633';
   ctx.fillRect(0, 0, W, H);
   for (let i = 0; i < 20; i++) {
-    const depth = (i * .13 + game.d * .0009) % 1;
+    const depth = (i * .13 + game.scroll * .0009) % 1;
     const y = 70 + depth * 620;
     const side = i % 2 ? 1 : -1;
     const x = W/2 + side * (145 + depth * 210);
@@ -501,7 +542,7 @@ function drawDeadCity() {
   ctx.fillStyle = '#3c3b42';
   ctx.fillRect(0, 0, W, H);
   for (let i = 0; i < 12; i++) {
-    const depth = (i * .18 + game.d * .0007) % 1;
+    const depth = (i * .18 + game.scroll * .0007) % 1;
     const side = i % 2 ? 1 : -1;
     const y = 100 + depth * 540;
     const x = W/2 + side * (155 + depth * 210);
@@ -520,7 +561,7 @@ function drawRedForest() {
   ctx.fillStyle = '#3a2024';
   ctx.fillRect(0, 0, W, H);
   for (let i = 0; i < 25; i++) {
-    const depth = (i * .12 + game.d * .001) % 1;
+    const depth = (i * .12 + game.scroll * .001) % 1;
     const side = i % 2 ? 1 : -1;
     const x = W/2 + side * (140 + depth * 250);
     const y = 100 + depth * 650;
@@ -535,8 +576,8 @@ function drawHollow() {
   ctx.fillStyle = '#17121a';
   ctx.fillRect(0, 0, W, H);
   for (let i = 0; i < 16; i++) {
-    const depth = (i * .16 + game.d * .0012) % 1;
-    const x = (i * 79 + game.d * .06) % (W + 100) - 50;
+    const depth = (i * .16 + game.scroll * .0012) % 1;
+    const x = (i * 79 + game.scroll * .06) % (W + 100) - 50;
     const y = 80 + depth * 650;
     ctx.fillStyle = '#2c202c';
     ctx.fillRect(x, y - 80 * depth, 5 + depth*9, 100 + depth*80);
@@ -549,7 +590,7 @@ function drawMonsterWorld() {
   ctx.fillStyle = `rgb(${30 + Math.floor(red*65)},${9 - Math.floor(red*5)},${18 - Math.floor(red*7)})`;
   ctx.fillRect(0, 0, W, H);
   for (let i = 0; i < 28; i++) {
-    const depth = (i * .11 + game.d * .0015) % 1;
+    const depth = (i * .11 + game.scroll * .0015) % 1;
     const x = W/2 + (i%2 ? 1 : -1) * (120 + depth*300);
     const y = 80 + depth*650;
     ctx.fillStyle = i%2 ? '#551c27' : '#3a1620';
@@ -778,10 +819,10 @@ function drawRealisticMonster(m) {
 function drawMainWoman() {
   // She begins as an ordinary person, then smoothly becomes the detailed creature style.
   const reveal = game.mainWoman;
-  const y = 210 - reveal * 15;
-  const x = W/2 + Math.sin(game.d*.002 + .8) * (20 + reveal*35);
+  const y = H - 18 - game.mainRush * 130;
+  const x = game.x + 65 + Math.sin(game.d*.002 + .8) * (14 + reveal*18);
   const fake = {
-    x, y, age: game.d*.01, scale: .9 + reveal*.25,
+    x, y, age: game.d*.01, scale: .6 + reveal*.3 + game.mainRush*.25,
     id: 2, phase: 1.2, revealed: reveal > .18
   };
   if (reveal < .18) {
@@ -856,12 +897,14 @@ leftDoor.addEventListener('click', () => chooseDoor(leftDoor.textContent));
 rightDoor.addEventListener('click', () => chooseDoor(rightDoor.textContent));
 
 addEventListener('keydown', e => {
-  keys[e.key] = true;
+  keys[e.key.length === 1 ? e.key.toLowerCase() : e.key] = true;
+  if (['ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
   if (e.key === ' ' || e.key === 'Shift') {
     e.preventDefault();
     useBoost();
   }
 });
-addEventListener('keyup', e => { keys[e.key] = false; });
+addEventListener('keyup', e => { keys[e.key.length === 1 ? e.key.toLowerCase() : e.key] = false; });
+addEventListener('blur', () => { for (const key of Object.keys(keys)) delete keys[key]; });
 
 reset();
