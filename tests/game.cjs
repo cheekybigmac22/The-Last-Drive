@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const repo = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(repo, 'style.css'), 'utf8');
-const source = fs.readFileSync(path.join(repo, 'game.js'), 'utf8');
+const source = fs.readFileSync(path.join(repo, 'pixel-art.js'), 'utf8') + '\n' + fs.readFileSync(path.join(repo, 'game.js'), 'utf8');
 let random = () => 0.999999;
 let sequence = 1;
 const timers = new Map();
@@ -109,7 +109,7 @@ const gameMath = Object.create(Math);
 gameMath.random = () => random();
 const sandbox = {
   console, Math: gameMath,
-  document: { querySelector(selector) { assert(elements.has(selector), `missing DOM element ${selector}`); return elements.get(selector); } },
+  document: { createElement() { return { width: 320, height: 410, getContext: () => context2d }; }, querySelector(selector) { assert(elements.has(selector), `missing DOM element ${selector}`); return elements.get(selector); } },
   performance: { now: () => 0 },
   setTimeout(callback) { const id = sequence++; timers.set(id, callback); return id; },
   clearTimeout(id) { timers.delete(id); },
@@ -120,7 +120,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(source + `\n;globalThis.testGame = {
   get game() { return game; }, get keys() { return keys; }, get biomes() { return biomes; },
-  begin, reset, draw, update, useBoost, mainWomanRush, spawnMonster, startMemoryGame, chooseDoor,
+  begin, reset, draw, update, useBoost, mainWomanRush, spawnMonster, encounter, startMemoryGame, chooseDoor,
   W, H
 };`, sandbox, { filename: 'game.js' });
 const api = sandbox.testGame;
@@ -150,7 +150,7 @@ function advance(seconds, beforeFrame = () => {}) {
   for (let frame = 0; frame < Math.ceil(seconds / dt); frame++) {
     beforeFrame(frame);
     api.update(dt);
-    assertSafe();
+    assert(Number.isFinite(api.game.d) && Number.isFinite(api.game.x));
   }
 }
 
@@ -165,166 +165,140 @@ function test(name, run) {
   }
 }
 
-test('startup and all seven biomes update and draw with finite canvas geometry', () => {
-  assert.equal(api.biomes.length, 7);
-  for (let biome = 0; biome < api.biomes.length; biome++) {
-    fresh();
-    api.game.d = api.biomes[biome][1] + 20;
-    advance(0.2);
-    api.draw();
-    assert.equal(api.game.biome, biome);
-    assert.equal(stack.length, 0, 'unbalanced canvas state');
-  }
-  assert(drawCalls > 100, 'render path did not draw the world');
-});
 
-test('memory phases hide the answer; both door choices resume without death', () => {
-  for (const correct of [true, false]) {
-    fresh();
-    api.startMemoryGame();
-    const answer = api.game.memory.answer;
-    assert.equal(answer.length, 2);
-    assert.notEqual(ownDisplay(elements.get('#memory-phase')), 'none');
-    assert.equal(ownDisplay(elements.get('#doors')), 'none');
-    const initialDistance = api.game.d;
-    advance(3);
-    assert.equal(api.game.memoryTimer, -1);
-    assert.equal(api.game.d, initialDistance, 'road must pause during memory test');
-    assert.equal(ownDisplay(elements.get('#memory-phase')), 'none', 'answer remains visible at the doors');
-    assert.notEqual(ownDisplay(elements.get('#doors')), 'none');
-    const choices = ['#door-left', '#door-right'].map(id => elements.get(id).textContent);
-    assert.equal(choices.filter(value => value === answer).length, 1);
-    api.chooseDoor(choices.find(value => correct ? value === answer : value !== answer));
-    assert.equal(api.game.memoryTimer, 0);
-    assert.equal(ownDisplay(elements.get('#memory')), 'none');
-    advance(0.2);
-    assert(api.game.d > initialDistance);
-  }
-  fresh();
-  api.game.d = 16000;
-  api.startMemoryGame();
-  assert.equal(api.game.memory.answer.length, 7, 'late memory numbers should be harder');
-});
+function quiet() {
+  api.game.monsterTimer=1e6;api.game.rushTimer=1e6;api.game.nextMemory=1e6;
+}
 
-test('woman rush lasts long enough to respond and manual boost clears the chase', () => {
-  fresh();
-  api.game.boost = 1;
-  api.mainWomanRush();
-  advance(2.2);
-  assert(api.game.mainRush > 0 && api.game.forcedTimer > 0, 'rush expired before player could respond');
-  advance(1);
-  assert(elements.get('#event').textContent.startsWith('BOOST NOW'), 'forced-boost warning never appeared');
-  api.useBoost();
-  assert.equal(api.game.mainRush, 0);
-  assert.equal(api.game.forcedTimer, 0, 'boost leaves the rush deadline active');
-  assert(api.game.burst > 0);
-  assertSafe();
-});
-
-test('missed forced boost resolves safely with a temporary setback', () => {
-  fresh();
-  api.mainWomanRush();
-  advance(2);
-  assert.equal(api.game.boost, 1, 'emergency pickup did not reach the rider before the deadline');
-  let setbackSeen = false;
-  advance(7, () => { setbackSeen ||= api.game.setback > 0; });
-  assert.equal(api.game.mainRush, 0);
-  assert.equal(api.game.forcedTimer, 0);
-  assert(setbackSeen, 'ignoring a forced chase has no consequence');
-  assertSafe();
-});
-
-test('monster contact stays safe and cooldown expires instead of becoming permanent', () => {
-  fresh();
-  api.spawnMonster('chase');
-  const monster = api.game.monsters.at(-1);
-  monster.x = api.game.x;
-  monster.y = api.H - 115;
-  api.update(dt);
-  assertSafe();
-  assert(monster.cooldown > 0, 'contact did not trigger an encounter');
-  assert(monster.y > api.H - 115, 'scare should put the monster behind the rider');
-  advance(2);
-  // The creature may be retired once behind the rider. If kept, its cooldown must expire.
-  if (api.game.monsters.includes(monster)) assert.equal(monster.cooldown, 0);
-  else assert(!api.game.monsters.includes(monster));
-
-  fresh();
-  api.spawnMonster('chase');
-  const cooling = api.game.monsters.at(-1);
-  cooling.x = 0;
-  cooling.y = -500;
-  cooling.cooldown = 0.1;
-  advance(0.3);
-  assert.equal(cooling.cooldown, 0, 'cooldown went negative or never cleared');
-
-  fresh();
-  api.game.boost = 1;
-  api.useBoost();
-  api.spawnMonster('chase');
-  const immune = api.game.monsters.at(-1);
-  immune.x = api.game.x;
-  immune.y = api.H - 115;
-  const priorSetback = api.game.setback;
-  api.update(dt);
-  assertSafe();
-  assert(api.game.setback <= priorSetback, 'boost did not prevent the contact setback');
-  assert(api.game.burst > 0, 'contact prematurely consumed active boost');
-});
-
-test('loop encounter reveals, repeats a bounded number of times, then retires', () => {
-  fresh();
-  // With seven types available, a random value near one chooses looper ID 6.
-  api.spawnMonster();
-  const monster = api.game.monsters.at(-1);
-  assert.equal(monster.kind, 'loop');
-  assert.equal(monster.revealed, false);
-  let reveals = 0;
-  let resets = 0;
-  let previousRevealed = false;
-  let previousY = monster.y;
-  advance(40, () => {
-    if (!api.game.monsters.includes(monster)) return;
-    if (monster.revealed && !previousRevealed) reveals++;
-    if (monster.y < previousY - 100) resets++;
-    previousRevealed = monster.revealed;
-    previousY = monster.y;
-  });
-  assert(reveals >= 1, 'loop never revealed');
-  assert(resets >= 1 && resets <= 3, `unexpected loop replay count ${resets}`);
-  assert(api.game.loopCount >= 1, 'no loop event recorded');
-  assert(!api.game.monsters.includes(monster), 'loop creature never retires');
-});
-
-test('25 simulated minutes progress beyond monster-world entry with bounded collections', () => {
-  fresh(314159);
-  const maxima = { monsters: 0, traffic: 0, pickups: 0, particles: 0 };
-  let memoryEvents = 0;
-  let usedBoosts = 0;
-  let entrySeconds = null;
-  advance(25 * 60, frame => {
-    const game = api.game;
-    if (game.memoryTimer === -1) {
-      memoryEvents++;
-      api.chooseDoor(game.memory.answer);
+test('all seven pixel biomes and forty monster forms draw without invalid coordinates',()=>{
+  assert.equal(api.biomes.length,7);
+  for(let biome=0;biome<7;biome++){
+    fresh();quiet();api.game.d=api.biomes[biome][1]+10;advance(.1);api.draw();
+    assert.equal(api.game.biome,biome);assert.equal(stack.length,0);
+    for(let id=0;id<40;id++){
+      api.game.monsters=[];api.spawnMonster();
+      Object.assign(api.game.monsters[0],{id,revealed:true,x:300,y:200});
+      api.draw();assert.equal(stack.length,0);
     }
-    const target = game.pickups.filter(pickup => pickup.y < api.H - 105)
-      .sort((left, right) => right.y - left.y)[0];
-    api.keys.ArrowLeft = Boolean(target && target.x < game.x - 5);
-    api.keys.ArrowRight = Boolean(target && target.x > game.x + 5);
-    if (game.boost && game.memoryTimer === 0 && game.burst <= 0) { api.useBoost(); usedBoosts++; }
-    if (entrySeconds === null && game.d >= 18000) entrySeconds = frame * dt;
-    for (const collection of Object.keys(maxima)) {
-      maxima[collection] = Math.max(maxima[collection], game[collection].length);
-      assert(game[collection].length < 200, `${collection} grew without bound`);
-    }
-    if (frame % 120 === 0) { api.draw(); assert.equal(stack.length, 0); }
-  });
-  assert(api.game.d >= 18000, `never reached monster world: ${Math.floor(api.game.d)}m`);
-  assert.equal(api.game.biome, 6);
-  assert(memoryEvents > 0 && usedBoosts > 0, 'simulation did not exercise memory events and boosts');
-  console.log(JSON.stringify({ simulatedMinutes: 25, distance: Math.floor(api.game.d),
-    monsterWorldEntryMinutes: entrySeconds / 60, usedBoosts, memoryEvents, maxima }));
+  }
+  assert(drawCalls>1000);
 });
-
-console.log(`${passed}/7 regression groups passed. Canvas/DOM are stubs; visual layout is not browser-verified.`);
+test('memory answer disappears at the doors and either choice resumes play',()=>{
+  for(const correct of [true,false]){
+    fresh();quiet();api.startMemoryGame();
+    const answer=api.game.memory.answer;
+    assert.equal(answer.length,2);
+    assert.equal(ownDisplay(elements.get('#doors')),'none');
+    const d=api.game.d;advance(3);
+    assert.equal(api.game.d,d);assert.equal(api.game.memoryTimer,-1);
+    assert.equal(elements.get('#memory-number').textContent,'');
+    assert.equal(ownDisplay(elements.get('#memory-phase')),'none');
+    assert.notEqual(ownDisplay(elements.get('#doors')),'none');
+    const choices=['#door-left','#door-right'].map(id=>elements.get(id).textContent);
+    assert.equal(choices.filter(v=>v===answer).length,1);
+    api.chooseDoor(choices.find(v=>correct?v===answer:v!==answer));
+    assert.equal(api.game.memoryTimer,0);assert.equal(ownDisplay(elements.get('#memory')),'none');
+    advance(.1);assert(api.game.d>d);assertSafe();
+  }
+  fresh();api.game.d=2400;api.startMemoryGame();assert.equal(api.game.memory.answer.length,7);
+});
+test('contact with every revealed monster is fatal, including with a stored or active boost',()=>{
+  for(let id=0;id<40;id++)for(const state of ['empty','ready','active']){
+    fresh();quiet();api.game.monsters=[];api.spawnMonster();
+    const m=api.game.monsters[0];Object.assign(m,{id,revealed:true,x:api.game.x,y:api.H-115});
+    api.game.boost=state==='ready'?1:0;api.game.burst=state==='active'?1:0;
+    api.update(dt);
+    assert.equal(api.game.running,false,'nonlethal contact: '+id+' '+state);
+    assert.notEqual(ownDisplay(elements.get('#death')),'none');
+    const d=api.game.d;api.update(1);assert.equal(api.game.d,d,'dead run kept progressing');
+  }
+  fresh();assertSafe();assert.equal(api.game.d,0);assert.equal(api.game.monsters.length,0);
+});
+test('tight contact boxes allow near misses and manual boost clears a nearby threat',()=>{
+  fresh();quiet();api.spawnMonster();let m=api.game.monsters[0];
+  Object.assign(m,{id:5,kind:'always',revealed:true,x:api.game.x+44,y:api.H-115});
+  api.update(dt);assertSafe();
+  m.x=api.game.x;m.y=api.H-170;
+  api.useBoost();assert.equal(m.life,0);api.update(dt);assertSafe();
+  assert.equal(api.game.boost,0);assert(api.game.burst>0);
+});
+test('chase offers a reachable pickup and enough warning to manually escape',()=>{
+  fresh();quiet();api.game.boost=0;api.mainWomanRush();advance(2);
+  assert.equal(api.game.boost,1,'emergency pickup missed the rider');
+  assert(api.game.mainRush>0&&api.game.forcedTimer>0);
+  advance(1);assert(elements.get('#event').textContent.includes('BOOST NOW'));
+  api.useBoost();assert.equal(api.game.mainRush,0);assert.equal(api.game.forcedTimer,0);
+  advance(3);assertSafe();
+  fresh();quiet();api.mainWomanRush();advance(6);
+  assert.equal(api.game.running,false,'ignoring a chase should be fatal');
+  assert.equal(elements.get('#death-title').textContent,'SHE CAUGHT YOU');
+});
+test('highway ends at 400m and every finite biome is roughly twenty seconds',()=>{
+  fresh();quiet();let prev=0,seconds=0;const crossings=[];
+  while(api.game.d<2400&&seconds<140){
+    api.update(dt);seconds+=dt;
+    if(api.game.biome!==prev){crossings.push(seconds);prev=api.game.biome;}
+  }
+  assert.equal(api.biomes[0][2],400);assert.equal(crossings.length,6);
+  assert(crossings[0]>18&&crossings[0]<21);
+  for(let i=1;i<crossings.length;i++)assert(crossings[i]-crossings[i-1]<23);
+  assert(seconds<120);assertSafe();console.log('Monster World reached in '+seconds.toFixed(1)+' seconds without boosts.');
+});
+test('camera stays fixed on highway and follows both directions outside it in world space',()=>{
+  fresh();quiet();api.keys.ArrowRight=true;advance(1);api.keys.ArrowRight=false;
+  assert.equal(api.game.cameraX,0);
+  api.game.d=450;api.update(dt);
+  api.game.pickups=[{x:api.game.x,y:-800,pulse:0}];
+  const pickup=api.game.pickups[0],worldX=pickup.x;
+  api.keys.ArrowRight=true;advance(2);api.keys.ArrowRight=false;
+  const right=api.game.cameraX;
+  assert(api.game.x>api.W,'world still clamped to screen');
+  assert(right>400);assert(Math.abs(api.game.x-api.game.cameraX-api.W/2)<55);
+  assert.equal(pickup.x,worldX,'camera moved pickup in world coordinates');
+  api.keys.ArrowLeft=true;advance(2);api.keys.ArrowLeft=false;
+  assert(api.game.cameraX<right-400);
+  assert(Math.abs(api.game.x-api.game.cameraX-api.W/2)<55);
+  api.draw();assert.equal(stack.length,0);
+});
+test('every encounter slot creates a monster and early spawns are frequent',()=>{
+  fresh();quiet();
+  for(let i=0;i<10;i++){api.game.monsters=[];api.encounter();assert.equal(api.game.monsters.length,1);}
+  fresh(22);api.game.rushTimer=1e6;api.game.nextMemory=1e6;
+  const seen=new Set();
+  advance(20,()=>{
+    for(const m of api.game.monsters){seen.add(m);if(m.y>api.H-250)m.life=0;}
+  });
+  assert(seen.size>=7,'fewer than seven encounters in twenty seconds');
+  assertSafe();console.log('Early encounters in twenty seconds: '+seen.size);
+});
+test('time loops reveal, replay twice, retire, and can be broken with boost',()=>{
+  fresh();quiet();api.spawnMonster('loop');
+  const m=api.game.monsters[0];m.x=110;
+  assert.equal(m.kind,'loop');assert.equal(m.revealed,false);
+  advance(35);assert(api.game.loopCount>=3);assert.equal(m.repeats,0);
+  assert(!api.game.monsters.includes(m));assertSafe();
+  api.spawnMonster('loop');const other=api.game.monsters.at(-1);api.useBoost();assert.equal(other.life,0);
+});
+test('twenty-five simulated minutes of play and retries keep collections bounded',()=>{
+  fresh(314159);let deaths=0,memories=0,boosts=0;
+  const maxima={monsters:0,traffic:0,pickups:0,particles:0};
+  for(let frame=0;frame<25*60*60;frame++){
+    const g=api.game;
+    if(!g.running){deaths++;api.begin();continue;}
+    if(g.memoryTimer===-1){api.chooseDoor(g.memory.answer);memories++;}
+    const target=g.pickups.filter(p=>p.y<api.H-105).sort((a,b)=>b.y-a.y)[0];
+    const threats=g.monsters.filter(m=>m.revealed&&m.y>api.H-290&&m.y<api.H-75);
+    const urgent=threats.some(m=>Math.abs(m.x-g.x)<60&&m.y>api.H-240);
+    if(g.boost&&g.burst<=0&&(urgent||g.forcedTimer>0&&g.forcedTimer<3)){api.useBoost();boosts++;}
+    let tx=target?target.x:g.x;
+    if(urgent&&!g.boost&&!g.burst)tx=g.x+(threats[0].x<g.x?90:-90);
+    api.keys.ArrowLeft=tx<g.x-4;api.keys.ArrowRight=tx>g.x+4;
+    api.update(dt);
+    for(const name of Object.keys(maxima)){maxima[name]=Math.max(maxima[name],g[name].length);assert(g[name].length<150,name+' grew unbounded');}
+    if(frame%180===0){api.draw();assert.equal(stack.length,0);}
+  }
+  assert(deaths>0,'simulation never exercised lethal contact or restart');
+  assert(boosts>0&&memories>0);
+  console.log(JSON.stringify({simulatedMinutes:25,deaths,memories,boosts,maxima}));
+});
+console.log(passed+'/10 regression groups passed. Canvas/DOM calls are simulated; artwork is checked separately with native canvas renders.');
