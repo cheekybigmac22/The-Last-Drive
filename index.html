@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>THE LAST DRIVE</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="game-wrap">
+  <header class="hud">
+    <div><b>THE LAST DRIVE</b><span id="biome">HIGHWAY</span></div>
+    <div class="stats"><span>DIST <strong id="distance">0m</strong></span><span>BOOST <strong id="boost">—</strong></span></div>
+  </header>
+  <canvas id="game" width="640" height="820" aria-label="The Last Drive game"></canvas>
+  <div id="event"></div>
+  <section id="start-screen" class="panel">
+    <p class="eyebrow">A HORROR ROAD GAME</p>
+    <h1>THE LAST DRIVE</h1>
+    <p>Drive forward. Remember what you see. Don't trust everyone you meet.</p>
+    <button id="start">START DRIVE</button>
+    <small>Move: A/D or ←/→ &nbsp; • &nbsp; Boost: SPACE/SHIFT</small>
+  </section>
+  <section id="memory" class="panel hidden">
+    <p class="eyebrow">MEMORY TEST</p>
+    <div id="memory-phase"><p>REMEMBER THIS NUMBER</p><strong id="memory-number">22</strong></div>
+    <div id="doors" class="hidden"><p>WHICH NUMBER DID YOU SEE?</p><div><button id="door-left"></button><button id="door-right"></button></div></div>
+  </section>
+  <section id="death" class="panel hidden"><p class="eyebrow">THE DRIVE ENDS</p><h2 id="death-title">YOU STOPPED</h2><p id="death-score"></p><button id="restart">DRIVE AGAIN</button></section>
+</main>
+<script src="game.js"></script>
+</body>
+</html>
