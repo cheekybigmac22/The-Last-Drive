@@ -50,7 +50,7 @@ function spawnBoost(){
   game.pickups.push({...p,pulse:rand(0,6)});
 }
 function spawnTraffic(){
-  if(game.traffic.length>=8)return;const p=forwardPoint(rand(240,650),350),near=RoadNetwork.closest(p.x,p.y),direction=pick([-1,1]);
+  if(game.traffic.length>=8||!World.highway(game.x,game.y))return;const p=forwardPoint(rand(240,650),350),near=RoadNetwork.closest(p.x,p.y),direction=pick([-1,1]);
   game.traffic.push({segment:near.segment,t:near.t,direction,x:near.x,y:near.y,angle:Math.atan2(near.dx*direction,-near.dy*direction),tone:pick(['#d84466','#f2ba44','#8db6b6']),model:pick([0,0,1,2]),speed:rand(35,65)});
 }
 function updateTraffic(dt){
@@ -65,6 +65,10 @@ function updateTraffic(dt){
 function spawnPedestrian(initial=false){
   if(game.pedestrians.length>=36)return;
   const p=initial?{x:game.x+rand(-400,400),y:game.y+rand(-450,450)}:forwardPoint(rand(300,550),350);
+  if(!World.highway(p.x,p.y)){
+    const position=World.openPoint(p.x,p.y,8),angle=rand(0,Math.PI*2);
+    game.pedestrians.push({...position,vx:Math.cos(angle)*15,vy:Math.sin(angle)*15,id:Math.floor(rand(0,40)),phase:rand(0,6)});return;
+  }
   const road=RoadNetwork.closest(p.x,p.y),side=pick([-1,1]),offset=road.segment.width/2+25,position=World.openPoint(road.x-road.dy*side*offset,road.y+road.dx*side*offset,8);
   game.pedestrians.push({...position,vx:road.dx*side*15,vy:road.dy*side*15,id:Math.floor(rand(0,40)),phase:rand(0,6)});
 }

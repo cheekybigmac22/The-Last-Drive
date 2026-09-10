@@ -185,11 +185,11 @@ function quiet() {
 test('ten spatial biomes and forty animated monster identities render finite coordinates',()=>{
   fresh();quiet();assert.equal(api.biomes.length,10);
   const found=new Map();
-  for(let x=-19000;x<=19000;x+=600)for(let y=-19000;y<=1000;y+=600){const b=api.World.biome(x,y);if(!found.has(b))found.set(b,{x,y});}
+  for(let x=-120000;x<=120000;x+=3000)for(let y=-120000;y<=3000;y+=3000){const b=api.World.biome(x,y);if(!found.has(b))found.set(b,{x,y});}
   assert.equal(found.size,10);
   for(const [b,p] of found){Object.assign(api.game,p,{biome:b,cameraX:p.x-320,cameraY:p.y-410});api.draw();assert.equal(stack.length,0);}
   for(let id=0;id<40;id++){api.game.monsters=[];api.spawnMonster();Object.assign(api.game.monsters[0],{id,revealed:true,revealProgress:1,moving:true,phase:id*.3});api.draw();}
-  assert(atlasDrawCalls>1000,'running animation should articulate multiple atlas bands');
+  assert(atlasDrawCalls>=8,'all eight silhouettes should load their own texture');assert(api.MonsterArt.cachedFrames>8&&api.MonsterArt.cachedFrames<=136);
 });
 test('bike stays centered, moves in all four directions, and stops on release',()=>{
   fresh();quiet();const g=api.game;api.update(.04);assert.equal(g.x,320);assert.equal(g.y,0);assert.equal(g.d,0);
@@ -201,8 +201,12 @@ test('bike stays centered, moves in all four directions, and stops on release',(
 });
 test('running animation changes limb geometry and pursuit cuts inside a rider circle',()=>{
   fresh();quiet();api.spawnMonster();const g=api.game,m=g.monsters[0];
-  Object.assign(m,{revealed:true,revealProgress:1,moving:true,phase:0});atlasCoordinates=[];api.draw();const first=JSON.stringify(atlasCoordinates);
-  m.phase=1;atlasCoordinates=[];api.draw();assert.notEqual(JSON.stringify(atlasCoordinates),first);
+  Object.assign(m,{revealed:true,revealProgress:1,moving:true,phase:0});api.draw();m.phase=1;api.draw();
+  const profile={hip:.52,stride:1,arms:1,bob:1};
+  const left=api.MonsterArt.pose(.3,.95,Math.PI/2,true,profile),right=api.MonsterArt.pose(.7,.95,Math.PI/2,true,profile);
+  assert(left.y<right.y-.05,'one foot must lift while the opposite foot plants');
+  const next=api.MonsterArt.pose(.3,.95,Math.PI*1.5,true,profile);assert(next.y>left.y+.05);
+  assert.equal(JSON.stringify(api.MonsterArt.pose(.3,.95,2,false,profile)),JSON.stringify({x:.3,y:.95}));
   g.monsters=[];g.woman={x:320,y:-70,path:[],repath:0,phase:0};let smallestRadius=Infinity;
   for(let i=0;i<600;i++){const t=i/60;g.x=320+100*Math.cos(t*2);g.y=-300+100*Math.sin(t*2);api.pursue(g.woman,1/60,150);smallestRadius=Math.min(smallestRadius,Math.hypot(g.woman.x-320,g.woman.y+300));}
   assert(smallestRadius<85,'woman should cut inside the circle instead of tracing the rider trail');
@@ -211,20 +215,22 @@ test('opening is one straight highway followed by a natural biome, not a monster
   fresh();quiet();const roads=api.RoadNetwork.segments(120,-700,520,700);assert(roads.length===1&&roads[0].id==='highway');assert.equal(roads[0].x1,roads[0].x2);
   api.game.y=-3219;api.game.woman.y=-2950;api.keys.w=true;api.update(.04);
   assert.equal(api.game.free,true);assert([1,2,3,7,8,9].includes(api.game.biome));
-  const outside=api.RoadNetwork.segments(2000,-6000,4000,-4000);assert(outside.some(s=>s.x1!==s.x2&&s.y1!==s.y2));
+  for(const box of [[2000,-6000,4000,-4000],[-5000,3000,-1000,6000],[-1000,-9000,1000,-3500]])assert.equal(api.RoadNetwork.segments(...box).length,0);
+  api.game.x=5000;api.game.y=-6000;api.game.traffic=[];api.spawnTraffic();assert.equal(api.game.traffic.length,0);
+  api.game.pedestrians=[];api.spawnPedestrian(true);assert(Math.hypot(api.game.pedestrians[0].x-5000,api.game.pedestrians[0].y+6000)<800,'walkers should not be pulled back onto the distant highway');
 });
 test('biomes have stable irregular boundaries in both axes and vary in size',()=>{
   const samples=[],types=new Set();
   for(const axis of ['x','y']){
     let previous=-1,start=0;const widths=[];
-    for(let n=-10000;n<=10000;n+=25){const x=axis==='x'?n:3000,y=axis==='y'?n:-6000,b=api.World.biome(x,y);types.add(b);assert.equal(api.World.biome(x,y),b);
+    for(let n=-60000;n<=60000;n+=100){const x=axis==='x'?n:3000,y=axis==='y'?n:-6000,b=api.World.biome(x,y);types.add(b);assert.equal(api.World.biome(x,y),b);
       if(previous!==b){if(previous>=0)widths.push(n-start);start=n;previous=b;}}
-    assert(widths.length>8);assert(new Set(widths).size>4);samples.push(widths);
+    assert(widths.length>8);assert(new Set(widths).size>4);assert(widths.reduce((a,b)=>a+b,0)/widths.length>3000,'regions should be substantially larger than before');samples.push(widths);
   }
   assert(types.size>=6);
 });
 test('landmarks are deterministic, solid, varied, and swept movement cannot tunnel',()=>{
-  const props=api.World.props(-5000,-6000,5000,-3000);assert(props.length>100);
+  const props=[];for(let x=-30000;x<=30000;x+=6000)for(let y=-30000;y<=0;y+=6000)props.push(...api.World.props(x,y,x+900,y+900));assert(props.length>100);
   const kinds=new Set(props.map(p=>p.kind));assert(kinds.has('pyramid')&&kinds.has('dune')&&kinds.has('temple')&&kinds.has('lighthouse'));
   for(const p of props.slice(0,80)){
     assert(api.World.blocked(p.x,p.y,13));const copy=api.World.props(p.x,p.y,p.x,p.y).find(q=>q.id===p.id);assert.equal(JSON.stringify(copy),JSON.stringify(p));

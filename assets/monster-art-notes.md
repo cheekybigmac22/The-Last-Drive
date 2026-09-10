@@ -4,7 +4,7 @@
 
 Eight distinct ink silhouettes supply the existing forty encounter identities and size/behavior variants. The second cell is the following woman. Revealed creatures render on a separate high-resolution, smoothly scaled canvas; people, motorcycle, roads and scenery stay on the low-resolution pixel grid. Human disguises fade into the creature artwork over 0.4 seconds.
 
-Running uses procedural articulation of atlas bands, with opposing limb swings and a bobbing torso. The following woman instead fades gradually from her human form into this artwork over 600 active gameplay seconds. No additional image generation was needed for these animations.
+Running uses a continuous triangular deformation mesh with sixteen cached poses per silhouette: shoulder-pivoted arm swings, alternating planted and recovering feet, knee flexion and body rise. Each of the eight silhouettes has its own stride, hip, arm and bounce settings, shared by the forty encounter identities. Unlike separated image strips, neighboring mesh triangles share vertices so the body stays connected. The following woman fades gradually from her human form into this artwork over 600 active gameplay seconds. No additional image generation was needed for these animations.
 
 ## Generation prompt
 

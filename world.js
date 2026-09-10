@@ -7,22 +7,22 @@ const World=(()=>{
   function highway(x,y){return x>=0&&x<=640&&y>=highwayEnd&&y<1000;}
   function biome(x,y){
     if(highway(x,y))return 0;
-    const cell=1000,cx=Math.floor(x/cell),cy=Math.floor(y/cell);let best=Infinity,id=1,regionX=0,regionY=0,depth=0;
+    const cell=6000,cx=Math.floor(x/cell),cy=Math.floor(y/cell);let best=Infinity,id=1,regionX=0,regionY=0,depth=0;
     for(let a=cx-2;a<=cx+2;a++)for(let b=cy-2;b<=cy+2;b++){
       const px=(a+.12+hash(a,b,1)*.76)*cell,py=(b+.12+hash(a,b,2)*.76)*cell;
       const d=(px-x)**2+(py-y)**2;
       if(d<best){best=d;id=[1,2,3,7,8,9][Math.floor(hash(a,b,3)*6)];regionX=a;regionY=b;depth=Math.hypot(px-320,py)/1000;}
     }
     // Corruption also follows irregular regions, not fixed-distance rings.
-    if(depth>18)return [4,5,6,6][Math.floor(hash(regionX,regionY,8)*4)];
-    if(depth>15)return [4,5,5,6][Math.floor(hash(regionX,regionY,8)*4)];
-    if(depth>12)return [4,4,5][Math.floor(hash(regionX,regionY,8)*3)];
+    if(depth>108)return [4,5,6,6][Math.floor(hash(regionX,regionY,8)*4)];
+    if(depth>90)return [4,5,5,6][Math.floor(hash(regionX,regionY,8)*4)];
+    if(depth>72)return [4,4,5][Math.floor(hash(regionX,regionY,8)*3)];
     return id;
   }
   const cache=new Map();
   function prop(col,row){
     const key=col+':'+row;if(cache.has(key))return cache.get(key);
-    const x=col*144+Math.round(hash(col,row,4)*38),y=row*144+Math.round(hash(col,row,5)*38),b=biome(x,y);
+    const x=col*176+88+Math.round(hash(col,row,4)*20-10),y=row*176+88+Math.round(hash(col,row,5)*20-10),b=biome(x,y);
     let value=null;
     const road=RoadNetwork.closest(x,y),edge=road.distance-road.segment.width/2;
     if(edge>48&&!(highway(x,y)&&x>100&&x<540)){
@@ -34,14 +34,15 @@ const World=(()=>{
         b===9?(n<.2?'lighthouse':n<.4?'boat':n<.6?'rock':'palm'):
         b>=4&&b<=6?(n<.23?'ruin':n<.42?'crystal':n<.6?'house':'tree'):'tree';
       const size={house:[42,48],barn:[45,42],cabin:[42,44],pyramid:[53,46],dune:[40,22],temple:[46,40],pond:[42,25],fountain:[26,22],hay:[22,18],ice:[26,25],lighthouse:[27,35],boat:[34,18],ruin:[27,30],crystal:[24,25],tree:[20,20],pine:[20,22],palm:[14,18],cactus:[14,22],rock:[24,19]}[kind];
-      // Keep every footprint away from the shared connected road network.
+      // Clear the sole highway. Elsewhere, spacing leaves rideable natural gaps
+      // between even the largest landmarks, without invisible road corridors.
       if(edge>Math.max(...size)+25)value={id:key,x,y,biome:b,kind,rx:size[0],ry:size[1],seed:Math.floor(hash(col,row,7)*10000)};
     }
     cache.set(key,value);if(cache.size>3000)cache.delete(cache.keys().next().value);return value;
   }
   function props(minX,minY,maxX,maxY){
     const result=[];
-    for(let a=Math.floor((minX-80)/144);a<=Math.ceil((maxX+80)/144);a++)for(let b=Math.floor((minY-80)/144);b<=Math.ceil((maxY+80)/144);b++){
+    for(let a=Math.floor((minX-176)/176);a<=Math.ceil((maxX+80)/176);a++)for(let b=Math.floor((minY-176)/176);b<=Math.ceil((maxY+80)/176);b++){
       const p=prop(a,b);if(p&&p.x+p.rx>=minX&&p.x-p.rx<=maxX&&p.y+p.ry>=minY&&p.y-p.ry<=maxY)result.push(p);
     }
     return result;
@@ -58,7 +59,9 @@ const World=(()=>{
   function openPoint(x,y,r=14){
     if(!blocked(x,y,r))return {x,y};
     for(let d=24;d<=240;d+=24)for(let a=0;a<16;a++){const px=x+Math.cos(a*Math.PI/8)*d,py=y+Math.sin(a*Math.PI/8)*d;if(!blocked(px,py,r))return {x:px,y:py};}
-    const road=RoadNetwork.closest(x,y);return {x:road.x,y:road.y};
+    // Landmark cell corners are clear by construction; never send an off-road
+    // pickup or walker back to the distant starting highway as a fallback.
+    return {x:Math.round(x/176)*176,y:Math.round(y/176)*176};
   }
   function route(from,to,r=12){
     if(clear(from.x,from.y,to.x,to.y,r))return [{x:to.x,y:to.y}];
