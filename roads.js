@@ -54,5 +54,23 @@ const RoadNetwork = (() => {
     }
     return nearest;
   }
-  return { segments, closest };
+  const intro={id:'highway',x1:320,y1:1000,x2:320,y2:-3200,width:400};
+  const tip=closest(320,-3450),join={id:'highway-exit',x1:320,y1:-3200,x2:tip.x,y2:tip.y,width:110};
+  function overlaps(s){return Math.max(s.x1,s.x2)>0&&Math.min(s.x1,s.x2)<640&&Math.max(s.y1,s.y2)>-3200&&Math.min(s.y1,s.y2)<1000;}
+  function worldSegments(a,b,d,e){
+    const list=segments(a,b,d,e).filter(s=>!overlaps(s));
+    for(const s of [intro,join])if(Math.max(s.x1,s.x2)+220>=a&&Math.min(s.x1,s.x2)-220<=d&&Math.max(s.y1,s.y2)+220>=b&&Math.min(s.y1,s.y2)-220<=e)list.push(s);
+    return list;
+  }
+  function worldClosest(x,y){
+    if(x<-650||x>1290||y<-4000||y>1700)return closest(x,y);
+    let nearest=null;
+    for(const s of worldSegments(x-800,y-800,x+800,y+800)){
+      const vx=s.x2-s.x1,vy=s.y2-s.y1,len=Math.hypot(vx,vy),t=Math.max(0,Math.min(1,((x-s.x1)*vx+(y-s.y1)*vy)/(len*len)));
+      const px=s.x1+vx*t,py=s.y1+vy*t,distance=Math.hypot(x-px,y-py);
+      if(!nearest||distance<nearest.distance)nearest={segment:s,t,x:px,y:py,dx:vx/len,dy:vy/len,distance};
+    }
+    return nearest||closest(x,y);
+  }
+  return {segments:worldSegments,closest:worldClosest};
 })();

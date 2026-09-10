@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const repo = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(repo, 'style.css'), 'utf8');
-const source = ['roads.js','pixel-art.js','monster-art.js','game.js'].map(file=>fs.readFileSync(path.join(repo,file),'utf8')).join('\n');
+const source = ['roads.js','world.js','pixel-art.js','monster-art.js','game.js'].map(file=>fs.readFileSync(path.join(repo,file),'utf8')).join('\n');
 let random = () => 0.999999;
 let sequence = 1;
 const timers = new Map();
@@ -18,6 +18,7 @@ const animationFrames = new Map();
 const listeners = new Map();
 let drawCalls = 0;
 let atlasDrawCalls = 0;
+let atlasCoordinates = [];
 const stack = [];
 const context2d = { globalAlpha: 1 };
 class FakeImage {
@@ -39,7 +40,7 @@ for (const operation of ['fillRect', 'strokeRect', 'clearRect', 'moveTo', 'lineT
     finiteNumbers(args, operation);
     if (operation === 'ellipse') assert(args[2] >= 0 && args[3] >= 0, 'negative ellipse radius');
     if (operation === 'arc') assert(args[2] >= 0, 'negative arc radius');
-    if (operation === 'drawImage' && args[0] instanceof FakeImage) atlasDrawCalls++;
+    if (operation === 'drawImage' && args[0] instanceof FakeImage) {atlasDrawCalls++;atlasCoordinates.push(args.slice(1));if(atlasCoordinates.length>300)atlasCoordinates.shift();}
     drawCalls++;
   };
 }
@@ -127,8 +128,8 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(source + `\n;globalThis.testGame = {
   get game() { return game; }, get keys() { return keys; }, get biomes() { return biomes; },
-  begin, reset, draw, update, useBoost, mainWomanRush, spawnMonster, spawnPedestrian, spawnTraffic, updateTraffic, encounter, startMemoryGame, chooseDoor,
-  RoadNetwork, MonsterArt,
+  begin, reset, draw, update, useBoost, updateMainWoman, rewindWorld, pursue, spawnBoost, spawnMonster, spawnPedestrian, spawnTraffic, updateTraffic, encounter, startMemoryGame, chooseDoor,
+  RoadNetwork, World, MonsterArt,
   W, H
 };`, sandbox, { filename: 'game.js' });
 const api = sandbox.testGame;
@@ -180,215 +181,114 @@ function quiet() {
   api.game.monsterTimer=1e6;api.game.rushTimer=1e6;api.game.nextMemory=1e6;
 }
 
-test('all seven pixel biomes and forty high-resolution monster forms draw without invalid coordinates',()=>{
-  assert.equal(api.biomes.length,7);
-  assert.equal(api.MonsterArt.loaded,true,'monster atlas did not load');
-  for(let biome=0;biome<7;biome++){
-    fresh();quiet();api.game.d=api.biomes[biome][1]+10;advance(.1);api.draw();
-    assert.equal(api.game.biome,biome);assert.equal(stack.length,0);
+
+test('ten spatial biomes and forty animated monster identities render finite coordinates',()=>{
+  fresh();quiet();assert.equal(api.biomes.length,10);
+  const found=new Map();
+  for(let x=-19000;x<=19000;x+=600)for(let y=-19000;y<=1000;y+=600){const b=api.World.biome(x,y);if(!found.has(b))found.set(b,{x,y});}
+  assert.equal(found.size,10);
+  for(const [b,p] of found){Object.assign(api.game,p,{biome:b,cameraX:p.x-320,cameraY:p.y-410});api.draw();assert.equal(stack.length,0);}
+  for(let id=0;id<40;id++){api.game.monsters=[];api.spawnMonster();Object.assign(api.game.monsters[0],{id,revealed:true,revealProgress:1,moving:true,phase:id*.3});api.draw();}
+  assert(atlasDrawCalls>1000,'running animation should articulate multiple atlas bands');
+});
+test('bike stays centered, moves in all four directions, and stops on release',()=>{
+  fresh();quiet();const g=api.game;api.update(.04);assert.equal(g.x,320);assert.equal(g.y,0);assert.equal(g.d,0);
+  for(const [key,axis,sign] of [['w','y',-1],['s','y',1],['a','x',-1],['d','x',1]]){
+    const before=g[axis];api.keys[key]=true;api.update(.04);delete api.keys[key];assert((g[axis]-before)*sign>0);
+    assert.equal(g.x-g.cameraX,320);assert.equal(g.y-g.cameraY,410);
   }
-  for(let id=0;id<40;id++){
-    fresh();quiet();api.spawnMonster();
-    Object.assign(api.game.monsters[0],{id,revealed:true,revealProgress:1,x:300,y:200});
-    const before=atlasDrawCalls;
-    api.MonsterArt.draw(api.game,api.W,api.H);
-    assert(atlasDrawCalls>before,'monster '+id+' did not use the high-resolution atlas');
-    assert.equal(stack.length,0);
+  const x=g.x,y=g.y,d=g.d;api.update(.04);assert.equal(g.x,x);assert.equal(g.y,y);assert.equal(g.d,d);assert.equal(g.moving,false);
+});
+test('running animation changes limb geometry and pursuit cuts inside a rider circle',()=>{
+  fresh();quiet();api.spawnMonster();const g=api.game,m=g.monsters[0];
+  Object.assign(m,{revealed:true,revealProgress:1,moving:true,phase:0});atlasCoordinates=[];api.draw();const first=JSON.stringify(atlasCoordinates);
+  m.phase=1;atlasCoordinates=[];api.draw();assert.notEqual(JSON.stringify(atlasCoordinates),first);
+  g.monsters=[];g.woman={x:320,y:-70,path:[],repath:0,phase:0};let smallestRadius=Infinity;
+  for(let i=0;i<600;i++){const t=i/60;g.x=320+100*Math.cos(t*2);g.y=-300+100*Math.sin(t*2);api.pursue(g.woman,1/60,150);smallestRadius=Math.min(smallestRadius,Math.hypot(g.woman.x-320,g.woman.y+300));}
+  assert(smallestRadius<85,'woman should cut inside the circle instead of tracing the rider trail');
+});
+test('opening is one straight highway followed by a natural biome, not a monster biome',()=>{
+  fresh();quiet();const roads=api.RoadNetwork.segments(120,-700,520,700);assert(roads.length===1&&roads[0].id==='highway');assert.equal(roads[0].x1,roads[0].x2);
+  api.game.y=-3219;api.game.woman.y=-2950;api.keys.w=true;api.update(.04);
+  assert.equal(api.game.free,true);assert([1,2,3,7,8,9].includes(api.game.biome));
+  const outside=api.RoadNetwork.segments(2000,-6000,4000,-4000);assert(outside.some(s=>s.x1!==s.x2&&s.y1!==s.y2));
+});
+test('biomes have stable irregular boundaries in both axes and vary in size',()=>{
+  const samples=[],types=new Set();
+  for(const axis of ['x','y']){
+    let previous=-1,start=0;const widths=[];
+    for(let n=-10000;n<=10000;n+=25){const x=axis==='x'?n:3000,y=axis==='y'?n:-6000,b=api.World.biome(x,y);types.add(b);assert.equal(api.World.biome(x,y),b);
+      if(previous!==b){if(previous>=0)widths.push(n-start);start=n;previous=b;}}
+    assert(widths.length>8);assert(new Set(widths).size>4);samples.push(widths);
   }
-  assert(drawCalls>1000);
+  assert(types.size>=6);
 });
-test('diagonal street network is connected, deterministic, and returns the closest world point',()=>{
-  const network=api.RoadNetwork;
-  const area=[-1500,-1500,1500,1500];
-  const streets=network.segments(...area);
-  assert.equal(JSON.stringify(streets),JSON.stringify(network.segments(...area)));
-  assert(streets.length>15);
-  assert.equal(new Set(streets.map(s=>s.id)).size,streets.length,'duplicate streets in query');
-  for(const s of streets){
-    assert(Math.abs(s.x2-s.x1)>20&&Math.abs(s.y2-s.y1)>20,'straight central artery reappeared');
-    assert(s.width>=80&&s.width<=120);
-    const links=network.segments(s.x2-1,s.y2-1,s.x2+1,s.y2+1).filter(n=>n.id!==s.id&&
-      (Math.hypot(n.x1-s.x2,n.y1-s.y2)<.01||Math.hypot(n.x2-s.x2,n.y2-s.y2)<.01));
-    assert(links.length>=2,'street junction was disconnected');
+test('landmarks are deterministic, solid, varied, and swept movement cannot tunnel',()=>{
+  const props=api.World.props(-5000,-6000,5000,-3000);assert(props.length>100);
+  const kinds=new Set(props.map(p=>p.kind));assert(kinds.has('pyramid')&&kinds.has('dune')&&kinds.has('temple')&&kinds.has('lighthouse'));
+  for(const p of props.slice(0,80)){
+    assert(api.World.blocked(p.x,p.y,13));const copy=api.World.props(p.x,p.y,p.x,p.y).find(q=>q.id===p.id);assert.equal(JSON.stringify(copy),JSON.stringify(p));
   }
-  for(const [x,y] of [[396,705],[-820,-3200],[6000,-12000],[0,0],[1200,900]]){
-    const near=network.closest(x,y),s=near.segment;
-    assert(near.t>=0&&near.t<=1);assert(Math.abs(Math.hypot(near.dx,near.dy)-1)<1e-10);
-    assert(Math.abs(near.x-(s.x1+(s.x2-s.x1)*near.t))<1e-9);
-    assert(Math.abs(near.y-(s.y1+(s.y2-s.y1)*near.t))<1e-9);
-    assert(Math.abs(near.distance-Math.hypot(x-near.x,y-near.y))<1e-9);
-    let exhaustive=Infinity;
-    for(const candidate of network.segments(x-900,y-900,x+900,y+900)){
-      const dx=candidate.x2-candidate.x1,dy=candidate.y2-candidate.y1;
-      const t=Math.max(0,Math.min(1,((x-candidate.x1)*dx+(y-candidate.y1)*dy)/(dx*dx+dy*dy)));
-      exhaustive=Math.min(exhaustive,Math.hypot(x-candidate.x1-dx*t,y-candidate.y1-dy*t));
-    }
-    assert(Math.abs(near.distance-exhaustive)<1e-8);
-  }
+  const p=props.find(p=>api.World.clear(p.x-p.rx-100,p.y,p.x-p.rx-14,p.y,13));
+  const actor={x:p.x-p.rx-100,y:p.y};api.World.move(actor,400,0,13);assert(actor.x<=p.x-p.rx-13+1e-6);assert(!api.World.blocked(actor.x,actor.y,13));
 });
-test('ordinary pedestrians populate streets, walk, remain harmless, and stay bounded',()=>{
-  fresh(31);quiet();
-  assert(api.game.pedestrians.length>=20,'neighborhood begins empty');
-  const p=api.game.pedestrians[0];
-  Object.assign(p,{x:api.game.x,y:api.H-115,vx:12,vy:8});
-  const x=p.x,phase=p.phase;
-  advance(.2);assertSafe();
-  assert(p.x>x&&p.phase>phase,'pedestrian walking animation did not advance');
-  for(let i=0;i<80;i++)api.spawnPedestrian(200);
-  assert.equal(api.game.pedestrians.length,40);
-  advance(30,()=>assert(api.game.pedestrians.length<=40));
-  assert(api.game.pedestrians.length>0);assertSafe();
+test('woman starts far away on screen, directly intercepts, and catches an idle rider',()=>{
+  fresh();quiet();let g=api.game;assert.equal(g.woman.y-g.cameraY,710);assert.equal(g.mainWoman,0);
+  const ox=g.woman.x,oy=g.woman.y;api.update(.04);assert(g.woman.y<oy);assert.equal(g.woman.x,ox);
+  advance(5);assert.equal(g.running,false);assert.equal(elements.get('#death-title').textContent,'SHE CAUGHT YOU');
+  fresh();quiet();g=api.game;g.woman.x=450;g.woman.y=240;api.updateMainWoman(.04);assert(g.woman.x<450&&g.woman.y<240,'pursuit must cut toward current position');
 });
-test('traffic follows connected angled streets and retires outside the viewport',()=>{
-  fresh(71);quiet();
-  assert(api.game.traffic.length>0);
-  const v=api.game.traffic[0],oldId=v.segment.id;
-  v.t=.999;v.direction=1;v.speed=65;
-  api.updateTraffic(.1);
-  assert.notEqual(v.segment.id,oldId,'traffic did not enter the connecting street');
-  for(const car of api.game.traffic){
-    const s=car.segment,dx=s.x2-s.x1,dy=s.y2-s.y1,length=Math.hypot(dx,dy);
-    const cx=s.x1+dx*car.t,cy=s.y1+dy*car.t;
-    assert(Math.abs(car.x-(cx-dy/length*car.direction*17))<1e-8);
-    assert(Math.abs(car.y-(cy+dx/length*car.direction*17+api.game.scroll))<1e-8);
-    assert(Number.isFinite(car.angle));
-  }
-  for(let i=0;i<40;i++)api.spawnTraffic(200);
-  assert.equal(api.game.traffic.length,12);
-  api.game.cameraX+=10000;api.updateTraffic(dt);
-  assert.equal(api.game.traffic.length,0,'far-off traffic was retained');
-});
-test('memory answer disappears at the doors and either choice resumes play',()=>{
-  for(const correct of [true,false]){
-    fresh();quiet();api.startMemoryGame();
-    const answer=api.game.memory.answer;
-    assert.equal(answer.length,2);
-    assert.equal(ownDisplay(elements.get('#doors')),'none');
-    const d=api.game.d;advance(3);
-    assert.equal(api.game.d,d);assert.equal(api.game.memoryTimer,-1);
-    assert.equal(elements.get('#memory-number').textContent,'');
-    assert.equal(ownDisplay(elements.get('#memory-phase')),'none');
-    assert.notEqual(ownDisplay(elements.get('#doors')),'none');
-    const choices=['#door-left','#door-right'].map(id=>elements.get(id).textContent);
-    assert.equal(choices.filter(v=>v===answer).length,1);
-    api.chooseDoor(choices.find(v=>correct?v===answer:v!==answer));
-    assert.equal(api.game.memoryTimer,0);assert.equal(ownDisplay(elements.get('#memory')),'none');
-    advance(.1);assert(api.game.d>d);assertSafe();
-  }
-  fresh();api.game.d=2400;api.startMemoryGame();assert.equal(api.game.memory.answer.length,7);
-});
-test('contact with every revealed monster is fatal, including with a stored or active boost',()=>{
-  for(let id=0;id<40;id++)for(const state of ['empty','ready','active']){
-    fresh();quiet();api.game.monsters=[];api.spawnMonster();
-    const m=api.game.monsters[0];Object.assign(m,{id,revealed:true,revealProgress:1,x:api.game.x,y:api.H-115});
-    api.game.boost=state==='ready'?1:0;api.game.burst=state==='active'?1:0;
-    api.update(dt);
-    assert.equal(api.game.running,false,'nonlethal contact: '+id+' '+state);
-    assert.notEqual(ownDisplay(elements.get('#death')),'none');
-    const d=api.game.d;api.update(1);assert.equal(api.game.d,d,'dead run kept progressing');
-  }
-  fresh();assertSafe();assert.equal(api.game.d,0);assert.equal(api.game.monsters.length,0);
-});
-test('tight contact boxes allow near misses and manual boost clears a nearby threat',()=>{
-  fresh();quiet();api.spawnMonster();let m=api.game.monsters[0];
-  Object.assign(m,{id:5,kind:'always',revealed:true,x:api.game.x+44,y:api.H-115});
-  api.update(dt);assertSafe();
-  m.x=api.game.x;m.y=api.H-170;
-  api.useBoost();assert.equal(m.life,0);api.update(dt);assertSafe();
-  assert.equal(api.game.boost,0);assert(api.game.burst>0);
-});
-test('chase offers a reachable pickup and enough warning to manually escape',()=>{
-  fresh();quiet();api.game.boost=0;api.mainWomanRush();advance(2);
-  assert.equal(api.game.boost,1,'emergency pickup missed the rider');
-  assert(api.game.mainRush>0&&api.game.forcedTimer>0);
-  advance(1);assert(elements.get('#event').textContent.includes('BOOST NOW'));
-  api.useBoost();assert.equal(api.game.mainRush,0);assert.equal(api.game.forcedTimer,0);
-  advance(3);assertSafe();
-  fresh();quiet();api.mainWomanRush();advance(6);
-  assert.equal(api.game.running,false,'ignoring a chase should be fatal');
-  assert.equal(elements.get('#death-title').textContent,'SHE CAUGHT YOU');
-});
-test('highway ends at 400m and every finite biome is roughly twenty seconds',()=>{
-  fresh();quiet();let prev=0,seconds=0;const crossings=[];
-  while(api.game.d<2400&&seconds<140){
-    api.update(dt);seconds+=dt;
-    if(api.game.biome!==prev){crossings.push(seconds);prev=api.game.biome;}
-  }
-  assert.equal(api.biomes[0][2],400);assert.equal(crossings.length,6);
-  assert(crossings[0]>18&&crossings[0]<21);
-  for(let i=1;i<crossings.length;i++)assert(crossings[i]-crossings[i-1]<23);
-  assert(seconds<120);assertSafe();console.log('Monster World reached in '+seconds.toFixed(1)+' seconds without boosts.');
-});
-test('camera stays fixed on highway and follows both directions outside it in world space',()=>{
-  fresh();quiet();api.keys.ArrowRight=true;advance(1);api.keys.ArrowRight=false;
-  assert.equal(api.game.cameraX,0);
-  api.game.d=450;api.update(dt);
-  api.game.pickups=[{x:api.game.x,y:-800,pulse:0}];
-  const pickup=api.game.pickups[0],worldX=pickup.x;
-  api.keys.ArrowRight=true;advance(2);api.keys.ArrowRight=false;
-  const right=api.game.cameraX;
-  assert(api.game.x>api.W,'world still clamped to screen');
-  assert(right>400);assert(Math.abs(api.game.x-api.game.cameraX-api.W/2)<55);
-  assert.equal(pickup.x,worldX,'camera moved pickup in world coordinates');
-  api.keys.ArrowLeft=true;advance(2);api.keys.ArrowLeft=false;
-  assert(api.game.cameraX<right-400);
-  assert(Math.abs(api.game.x-api.game.cameraX-api.W/2)<55);
-  api.draw();assert.equal(stack.length,0);
-});
-test('monster slots are rare, at most three coexist, and most begin as pixel people',()=>{
+test('pursuer navigates around a solid landmark rather than passing through it',()=>{
   fresh();quiet();
-  for(let i=0;i<10;i++){api.game.monsters=[];api.encounter();assert.equal(api.game.monsters.length,1);}
-  fresh(22);assert.equal(api.game.monsterTimer,10);
-  api.game.rushTimer=1e6;api.game.nextMemory=1e6;
-  const seen=new Set();
-  advance(20,()=>{
-    for(const m of api.game.monsters){seen.add(m);if(m.y>api.H-250)m.life=0;}
-    assert(api.game.monsters.length<=3);
-  });
-  assert.equal(seen.size,1,'early encounters should be occasional among many people');
-  for(let i=0;i<80;i++){
-    api.game.d=0;api.game.monsterTimer=0;api.game.monsters=[];api.update(dt);
-    assert(api.game.monsterTimer>=11.99&&api.game.monsterTimer<=18,'early slot is outside 12–18 seconds');
-  }
-  api.game.monsters=[];
-  for(let i=0;i<20;i++)api.spawnMonster();
-  assert.equal(api.game.monsters.length,3);
-  fresh(1001);quiet();let hidden=0;
-  for(let i=0;i<1000;i++){
-    api.game.monsters=[];api.spawnMonster();
-    if(!api.game.monsters[0].revealed&&api.game.monsters[0].disguised)hidden++;
-  }
-  assert(hidden>=850,'fewer than 85% of encounters begin disguised');
-  assertSafe();console.log('Early encounters in twenty seconds: '+seen.size);
+  const props=api.World.props(-4000,-7000,4000,-4000);
+  let chosen;
+  for(const p of props){const a={x:p.x-p.rx-45,y:p.y},b={x:p.x+p.rx+45,y:p.y};if(api.World.blocked(a.x,a.y,10)||api.World.blocked(b.x,b.y,13))continue;
+    const path=api.World.route(a,b,10);if(path.length>1){chosen={a,b,path};break;}}
+  assert(chosen,'should find a route around an obstacle');
+  Object.assign(api.game,chosen.b);const actor={...chosen.a,path:chosen.path,repath:1,phase:0};
+  for(let i=0;i<600&&Math.hypot(actor.x-api.game.x,actor.y-api.game.y)>10;i++){api.pursue(actor,1/60,140);assert(!api.World.blocked(actor.x,actor.y,10));}
+  assert(Math.hypot(actor.x-api.game.x,actor.y-api.game.y)<12,'pursuer stalled instead of routing around obstacle');
 });
-test('time loops reveal, replay twice, retire, and can be broken with boost',()=>{
-  fresh();quiet();api.spawnMonster('loop');
-  const m=api.game.monsters[0];m.x=110;
-  assert.equal(m.kind,'loop');assert.equal(m.revealed,false);
-  advance(35,()=>{m.x=api.game.x-240;});assert(api.game.loopCount>=3);assert.equal(m.repeats,0);
-  assert(!api.game.monsters.includes(m));assertSafe();
-  api.spawnMonster('loop');const other=api.game.monsters.at(-1);api.useBoost();assert.equal(other.life,0);
+test('woman transformation takes ten active minutes and pauses for memory doors',()=>{
+  fresh();quiet();const g=api.game;
+  for(const [time,expected] of [[0,0],[150,.25],[300,.5],[599,599/600],[600,1],[1200,1]]){g.time=time;api.updateMainWoman(0);assert.equal(g.mainWoman,expected);}
+  g.time=300;api.startMemoryGame();const time=g.time,y=g.woman.y;advance(3);assert.equal(g.memoryTimer,-1);assert.equal(g.time,time);assert.equal(g.woman.y,y);assert.equal(elements.get('#memory-number').textContent,'');
+  api.chooseDoor(g.memory.answer);assert.equal(g.memoryTimer,0);assert.equal(g.boost,1);
 });
-test('twenty-five simulated minutes keep collections bounded and permit continued survival',()=>{
-  fresh(314159);let deaths=0,memories=0,boosts=0;
-  const maxima={monsters:0,traffic:0,pickups:0,particles:0,pedestrians:0};
-  for(let frame=0;frame<25*60*60;frame++){
-    const g=api.game;
-    if(!g.running){deaths++;api.begin();continue;}
+test('rare people transform into animated lethal monsters; ordinary walkers are harmless',()=>{
+  fresh(123);quiet();let hidden=0;
+  for(let i=0;i<100;i++){api.game.monsters=[];api.spawnMonster();hidden+=!api.game.monsters[0].revealed;}assert(hidden>=85);
+  for(let id=0;id<40;id++){fresh();quiet();api.spawnMonster('chase');const m=api.game.monsters[0];Object.assign(m,{id,x:api.game.x,y:api.game.y,revealed:true,revealProgress:1});api.update(.01);assert.equal(api.game.running,false);}
+  fresh();quiet();api.game.pedestrians.push({x:320,y:0,vx:0,vy:0,id:0,phase:0});api.update(.01);assert.equal(api.game.running,true);
+});
+test('boost requires directional input, respects obstacles, and gives an escape window',()=>{
+  fresh();quiet();api.useBoost();const g=api.game;api.update(.04);assert.equal(g.y,0);
+  api.keys.w=true;const before=g.y;api.update(.04);assert(before-g.y>10);assert.equal(g.boost,0);
+  for(let i=0;i<20;i++)api.spawnBoost();
+  assert(g.pickups.every(p=>!api.World.blocked(p.x,p.y,13)));
+});
+test('time loops restore the exact decorated location without reversing the ten-minute clock',()=>{
+  fresh();quiet();const g=api.game;api.keys.w=true;advance(8);const target=g.history[Math.max(0,g.history.length-28)];
+  const before=JSON.stringify(api.World.props(target.x-400,target.y-400,target.x+400,target.y+400)),time=g.time,d=g.d;
+  assert(api.rewindWorld());assert.equal(g.x,target.x);assert.equal(g.y,target.y);assert.equal(g.time,time);assert.equal(g.d,d);
+  assert.equal(JSON.stringify(api.World.props(g.x-400,g.y-400,g.x+400,g.y+400)),before);assert.equal(g.loopCount,1);assert(g.loopCooldown>0);
+});
+test('extended simulation bounds actors, scenery cache, and rewind history',()=>{
+  fresh(9);let deaths=0,memories=0;
+  // A deterministic road pilot with retries exercises turns, collisions and chases.
+  for(let frame=0;frame<18000;frame++){
+    if(!api.game.running){deaths++;fresh(frame);}
+    const g=api.game;for(const k of Object.keys(api.keys))delete api.keys[k];
     if(g.memoryTimer===-1){api.chooseDoor(g.memory.answer);memories++;}
-    const target=g.pickups.filter(p=>p.y<api.H-105).sort((a,b)=>b.y-a.y)[0];
-    const threats=g.monsters.filter(m=>m.revealed&&m.y>api.H-290&&m.y<api.H-75);
-    const urgent=threats.some(m=>Math.abs(m.x-g.x)<60&&m.y>api.H-240);
-    if(g.boost&&g.burst<=0&&(urgent||g.forcedTimer>0&&g.forcedTimer<3)){api.useBoost();boosts++;}
-    let tx=target?target.x:g.x;
-    if(urgent&&!g.boost&&!g.burst)tx=g.x+(threats[0].x<g.x?90:-90);
-    api.keys.ArrowLeft=tx<g.x-4;api.keys.ArrowRight=tx>g.x+4;
-    api.update(dt);
-    for(const name of Object.keys(maxima)){maxima[name]=Math.max(maxima[name],g[name].length);assert(g[name].length<150,name+' grew unbounded');}
-    assert(g.monsters.length<=3);assert(g.pedestrians.length<=40);assert(g.traffic.length<=12);
-    if(frame%180===0){api.draw();assert.equal(stack.length,0);}
+    api.keys.w=true;
+    if(g.free&&frame%600<300)api.keys.a=true;
+    if(g.free&&frame%600>=300)api.keys.d=true;
+    if(g.boost&&Math.hypot(g.woman.x-g.x,g.woman.y-g.y)<140)api.useBoost();
+    api.update(.04);
+    assert(g.monsters.length<=3&&g.pickups.length<=8&&g.pedestrians.length<=36&&g.traffic.length<=8&&g.history.length<=48);
+    assert(!api.World.blocked(g.x,g.y,13));assert(api.World.cacheSize<=3000);
+    if(frame%1000===0)api.draw();
   }
-  assert(boosts>0&&memories>0);
-  console.log(JSON.stringify({simulatedMinutes:25,deaths,memories,boosts,maxima}));
+  console.log(JSON.stringify({simulatedMinutes:12,retries:deaths,memories,cache:api.World.cacheSize}));
 });
-console.log(passed+'/'+total+' regression groups passed. Canvas/DOM calls are simulated; artwork is checked separately with native canvas renders.');
+console.log(passed+'/'+total+' regression groups passed. Logic uses a simulated DOM; real artwork is checked separately with native canvas.');

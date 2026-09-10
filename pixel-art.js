@@ -12,7 +12,10 @@ const PixelArt = (() => {
     { ground:'#53576a', speck:'#414958', road:'#35465f', curb:'#8a919f', tree:['#383f51','#556452','#80876c','#b4a279'], roof:'#71818b' },
     { ground:'#764657', speck:'#5d344f', road:'#494153', curb:'#a48088', tree:['#4b3049','#853d59','#b65265','#db8b78'], roof:'#866678' },
     { ground:'#3b354f', speck:'#292c44', road:'#393c55', curb:'#777588', tree:['#29283f','#494156','#766073','#a28e95'], roof:'#645c77' },
-    { ground:'#653349', speck:'#4b2940', road:'#3b304b', curb:'#a66b7e', tree:['#352740','#71364f','#a34b67','#d17a89'], roof:'#945567' }
+    { ground:'#653349', speck:'#4b2940', road:'#3b304b', curb:'#a66b7e', tree:['#352740','#71364f','#a34b67','#d17a89'], roof:'#945567' },
+    {ground:'#79a76a',speck:'#608d57',road:'#6e7261',curb:'#bbbd90',tree:['#365d48','#54834c','#81ad58','#b7ce73'],roof:'#987663'},
+    {ground:'#cbdcdf',speck:'#a9c4d0',road:'#758699',curb:'#eef0db',tree:['#345c68','#527884','#82a6af','#d5e8dd'],roof:'#9faec2'},
+    {ground:'#d0be82',speck:'#af9e6f',road:'#7d7c72',curb:'#e4d4a0',tree:['#286659','#4a8d63','#7bb174','#bcce82'],roof:'#7d9ca5'}
   ];
   const mod = (v,n) => ((v%n)+n)%n;
   function hash(x,y=0) { let n = Math.imul(x|0,374761393)^Math.imul(y|0,668265263); n=Math.imul(n^(n>>>13),1274126177); return ((n^(n>>>16))>>>0)/4294967296; }
@@ -43,6 +46,7 @@ const PixelArt = (() => {
     X:['101','101','010','101','101'], Y:['101','101','010','010','010'], '0':['111','101','101','101','111'],
     '4':['101','101','111','001','001'], '2':['110','001','010','100','111']
   };
+  Object.assign(glyphs,{'1':['010','110','010','010','111'],'3':['110','001','010','001','110'],'5':['111','100','110','001','110'],'6':['011','100','111','101','111'],'7':['111','001','010','010','010'],'8':['111','101','111','101','111'],'9':['111','101','111','001','110']});
   function label(text,x,y,color=cream,size=2) {
     [...text].forEach((ch,i)=>{const rows=glyphs[ch]; if(rows)sprite(x+i*size*4,y,rows,{'1':color},size);});
   }
@@ -161,8 +165,9 @@ const PixelArt = (() => {
     const step=Math.round(Math.sin(phase)*2)*2;
     const skin=['#d6b995','#aa827e','#795e62','#e3c6a8'][Math.floor(id/3)%4];
     oval(x+3,y+12,12,6,shadow);
+    if(id===40){P(x-9,y-28,20,36,'#352b3b');P(x-11,y-17,5,26,'#433247');P(x+9,y-17,5,26,'#433247');}
     P(x-6,y-25,14,14,ink);P(x-4,y-23,10,10,skin);P(x-6,y-25,14,4,'#46394b');
-    if(id%5===0){P(x-8,y-26,18,6,colors[id%8]);P(x-10,y-22,22,2,cream);}
+    if(id%5===0&&id!==40){P(x-8,y-26,18,6,colors[id%8]);P(x-10,y-22,22,2,cream);}
     P(x-10,y-9,22,20,ink);P(x-8,y-7,18,16,colors[id%8]);
     P(x-14,y-6-step,6,16,skin);P(x+10,y-6+step,6,16,skin);
     if(id%3===0){P(x-6,y-6,12,14,'#43495f');P(x-4,y-4,8,4,'#7e8fa0');}
@@ -247,15 +252,18 @@ const PixelArt = (() => {
     for(let xx=Math.floor((cam-64)/cell)*cell;xx<cam+W+64;xx+=cell){
       const first=Math.floor(-travel/cell);
       for(let j=first;j<first+Math.ceil(H/cell)+2;j++){
-        const yy=j*cell+travel,seed=Math.floor(xx/cell);
+        const yy=j*cell+travel,seed=Math.floor(xx/cell),p=palettes[World.biome(xx+32,j*cell+32)];
+        P(xx,yy,cell,cell,p.ground);
         for(let n=0;n<4;n++){const dx=hash(seed+n,j)*56,dy=hash(seed,j+n)*56;P(xx+dx,yy+dy,4+n%2*4,2,p.speck);}
       }
     }
     const streets=RoadNetwork.segments(cam-120,-travel-120,cam+W+120,H-travel+120);
     // Lay all sidewalks, then all road surfaces, so connected junctions are open.
     for(const [extra,color] of [[40,ink],[36,p.curb],[8,'#69838f'],[0,p.road]])for(const s of streets){
-      roadRibbon(s,s.width+extra,color,travel,H);
-      for(const [x,y] of [[s.x1,s.y1],[s.x2,s.y2]])if(y+travel>-100&&y+travel<H+100)oval(x,y+travel,(s.width+extra)/2,(s.width+extra)/2,color);
+      const sp=palettes[World.biome((s.x1+s.x2)/2,(s.y1+s.y2)/2)];
+      const shade=extra===40?ink:extra===36?sp.curb:extra===8?'#69838f':sp.road;
+      roadRibbon(s,s.width+extra,shade,travel,H);
+      for(const [x,y] of [[s.x1,s.y1],[s.x2,s.y2]])if(y+travel>-100&&y+travel<H+100)oval(x,y+travel,(s.width+extra)/2,(s.width+extra)/2,shade);
     }
     for(const s of streets){
       const dx=s.x2-s.x1,dy=s.y2-s.y1,len=Math.hypot(dx,dy),ux=dx/len,uy=dy/len,nx=-uy,ny=ux;
@@ -264,8 +272,9 @@ const PixelArt = (() => {
         const x=s.x1+ux*d,y=s.y1+travel+uy*d;
         if(y<-60||y>H+60)continue;
         line(x,y,x+ux*25,y+uy*25,'#b9ceca',3);
+        if(s.id==='highway')for(const offset of [-125,125])line(x+offset,y,x+offset+ux*25,y+uy*25,'#b9ceca',3);
       }
-      for(const end of [76,len-76])for(let lane=-s.width/2+10;lane<s.width/2-8;lane+=13){
+      for(const end of (s.id==='highway'?[]:[76,len-76]))for(let lane=-s.width/2+10;lane<s.width/2-8;lane+=13){
         const x=s.x1+ux*end+nx*lane,y=s.y1+travel+uy*end+ny*lane;
         if(y>-40&&y<H+40)line(x,y,x+ux*16,y+uy*16,'#c8d8cf',6);
       }
@@ -282,63 +291,70 @@ const PixelArt = (() => {
       }
     }
   }
-  function scenery(g,W,H,p) {
-    const list=[],cell=104,travel=g.scroll,cam=g.cameraX;
-    const add=(y,draw)=>list.push({y,draw});
-    for(let col=Math.floor((cam-100)/cell);col<=Math.ceil((cam+W+100)/cell);col++){
-      for(let row=Math.floor((-travel-110)/cell);row<=Math.ceil((H-travel+90)/cell);row++){
-        const x=col*cell+Math.floor(hash(col,row)*9)*2,wy=row*cell,y=wy+travel,seed=Math.floor(hash(col+11,row)*1000);
-        const near=RoadNetwork.closest(x,wy),edge=near.distance-near.segment.width/2;
-        if(edge<30)continue;
-        const clearPlot=edge>96||[[-44,-58],[44,-58],[-44,48],[44,48],[0,0]].every(([ox,oy])=>{
-          const road=RoadNetwork.closest(x+ox,wy+oy);return road.distance>road.segment.width/2+22;
-        });
-        const density=[.93,.65,.5,.96,.7,.67,.76][g.biome];
-        if(clearPlot&&hash(col,row+19)<density){
-          add(y+48,()=>house(x,y,p,seed,g.biome));
-        }else if(edge>48){
-          if(g.biome===1)add(y+16,()=>seed%3?cactus(x,y):rock(x,y,p,seed));
-          else if(g.biome===2)add(y+28,()=>seed%3?tree(x,y,p,seed):palm(x,y,p));
-          else if(g.biome===5&&seed%3===0)add(y+28,()=>{
-            P(x+8,y-30,18,60,shadow);frame(x-8,y-40,24,66,ink,p.roof);P(x-4,y-36,6,58,p.curb);P(x-14,y-44,38,8,p.curb);
-          });
-          else add(y+24,()=>tree(x,y,p,seed,edge<75));
-        }
-      }
+  function landmark(o,y,p){
+    const x=o.x,seed=o.seed;
+    if(['house','barn','cabin'].includes(o.kind)){
+      house(x,y,p,seed,o.biome);
+      if(o.kind==='barn'){P(x-12,y+8,26,22,'#a45349');line(x-10,y+10,x+12,y+28,cream,2);line(x+12,y+10,x-10,y+28,cream,2);}
+      if(o.kind==='cabin')for(let j=0;j<5;j++)P(x-32,y-42+j*6,66,4,'#e4efdf');
+    }else if(o.kind==='tree')tree(x,y,p,seed);
+    else if(o.kind==='palm')palm(x,y,p);
+    else if(o.kind==='cactus')cactus(x,y);
+    else if(o.kind==='rock')rock(x,y,p,seed);
+    else if(o.kind==='pyramid'||o.kind==='temple'){
+      const desert=o.kind==='pyramid';
+      oval(x+8,y+26,56,25,shadow);
+      for(let j=0;j<12;j++){const w=108-j*8;P(x-w/2,y+36-j*8,w,8,desert?(j%2?'#bc8550':'#d7a55e'):(j%2?'#6e8580':'#96a393'));P(x,y+36-j*8,w/2,8,desert?'#aa7149':'#546b68');}
+      frame(x-10,y+6,20,30,ink,'#352b39');P(x-7,y+10,8,24,'#564150');
+      for(let j=0;j<6;j++)P(x-20,y+38+j*2,40,2,j%2?p.curb:p.speck);
+    }else if(o.kind==='dune'){
+      for(let j=0;j<14;j++){const w=84-Math.abs(j-7)*6;P(x-w/2,y-20+j*4,w,4,j<7?'#e3b875':'#c3975d');}
+      line(x-28,y-3,x+4,y-18,'#f3d193',4);line(x+4,y-18,x+32,y,'#ab8053',2);
+    }else if(o.kind==='pond'||o.kind==='fountain'){
+      oval(x,y,44,27,p.curb);oval(x,y,38,22,'#40758a');oval(x-5,y-5,29,14,'#599eaa');
+      for(let j=0;j<4;j++)P(x-24+j*13,y-6+(j%2)*12,12,2,'#a6d2ce');
+      if(o.kind==='fountain'){frame(x-5,y-30,12,32,ink,p.curb);oval(x,y-28,20,8,cream);line(x,y-36,x-15,y-13,'#a6d2ce',3);}
+    }else if(o.kind==='pine'){
+      P(x-4,y,8,25,'#65505b');
+      for(let k=0;k<4;k++)for(let j=0;j<9;j++)P(x-j*3,y-60+k*15+j*3,j*6+2,3,j<3?'#e0ede3':p.tree[1+k%2]);
+    }else if(o.kind==='ice'||o.kind==='crystal'){
+      const color=o.kind==='ice'?'#8ec9d9':'#c58bab';oval(x+5,y+15,30,16,shadow);
+      for(let j=0;j<13;j++){const w=j<5?j*6:30;P(x-w/2,y-42+j*5,w,5,color);P(x,y-42+j*5,w/2,5,o.kind==='ice'?'#5e9fb8':'#805c89');}
+      line(x-4,y-31,x-4,y+9,cream,3);
+    }else if(o.kind==='lighthouse'){
+      oval(x+12,y+20,34,18,shadow);frame(x-24,y-72,48,104,ink,cream);
+      P(x+14,y-68,8,96,'#9c9dad');for(let j=0;j<3;j++)P(x-22,y-50+j*30,44,12,'#ba5261');
+      frame(x-28,y-90,56,20,ink,'#6ea6b3');P(x-18,y-87,14,14,'#f3da86');P(x-32,y-72,64,4,ink);P(x-30,y-94,60,6,'#ab4d5b');
+    }else if(o.kind==='boat'){
+      for(let j=0;j<10;j++){const w=70-Math.abs(j-5)*6;P(x-w/2,y-18+j*4,w,4,j%3?'#9b624c':'#d4b68b');}
+      frame(x-24,y-10,48,18,ink,'#4b7f89');line(x-22,y-22,x+23,y+20,cream,4);
+    }else if(o.kind==='hay'){
+      frame(x-24,y-20,48,40,'#8f794a','#d6b755');for(let j=0;j<7;j++)P(x-20+j*6,y-18,2,34,'#f0d378');P(x-14,y-20,4,40,'#8f794a');P(x+12,y-20,4,40,'#8f794a');
+    }else{
+      frame(x-25,y-35,50,67,ink,p.roof);P(x-14,y-43,14,55,p.curb);P(x+12,y-18,12,40,p.speck);line(x-4,y-30,x+6,y+8,ink,4);
     }
-    for(const s of RoadNetwork.segments(cam-150,-travel-150,cam+W+150,H-travel+150)){
-      const dx=s.x2-s.x1,dy=s.y2-s.y1,len=Math.hypot(dx,dy),ux=dx/len,uy=dy/len,nx=-uy,ny=ux;
-      const seed=Math.floor(hash(s.x1,s.y1)*10000);
-      for(let d=140;d<len-120;d+=180){
-        const side=(seed+d)%4?1:-1,offset=s.width/2+28;
-        const x=s.x1+ux*d+nx*side*offset,y=s.y1+travel+uy*d+ny*side*offset;
-        if(x<cam-130||x>cam+W+130||y<-120||y>H+120)continue;
-        if(seed%4===0)add(y+12,()=>sign(x,y,g.biome===1?'GAS':'RTE','#527f83'));
-        else add(y+16,()=>{
-          // Short neighborhood lamps illuminate sidewalks without hiding homes.
-          oval(x+7,y+8,9,5,shadow);P(x-2,y-36,4,48,ink);P(x,y-34,2,44,'#b8c5c5');
-          frame(x-8,y-42,18,12,ink,'#e2d49e');P(x-6,y-40,12,4,'#fbebbc');
-        });
-        if(seed%3===0)add(y+18,()=>{frame(x+17,y+2,12,18,ink,'#547c73');P(x+19,y+4,8,2,'#91b19b');});
-      }
-    }
-    return list;
+    // Permanent, coordinate-derived landmark plates help identify a repeated place.
+    if(seed%5===0){frame(x-16,y+o.ry+4,34,14,ink,p.curb);label(String(seed%100).padStart(2,'0'),x-10,y+o.ry+6,ink);}
+  }
+  function scenery(g,W,H){
+    return World.props(g.cameraX-100,-g.scroll-150,g.cameraX+W+100,H-g.scroll+100)
+      .map(o=>({y:o.y+g.scroll+o.ry,draw:()=>landmark(o,o.y+g.scroll,palettes[o.biome])}));
   }
   function draw(target,g,W,H) {
     const p=palettes[g.biome];
     c.setTransform(.5,0,0,.5,0,0);
     c.imageSmoothingEnabled=false;
-    c.save();c.translate(-Math.round(g.cameraX/2)*2,0);
+    c.save();c.translate(-g.cameraX,0);
     terrain(g,W,H,p);
     const actors=scenery(g,W,H,p);
     for(const v of g.traffic)actors.push({y:v.y+46,draw:()=>{c.save();c.translate(Math.round(v.x/2)*2,Math.round(v.y/2)*2);c.rotate(v.angle||0);car(0,0,v.tone,v.model);c.restore();}});
     for(const b of g.pickups)actors.push({y:b.y+15,draw:()=>pickup(b.x,b.y,g.time+b.pulse)});
     for(const p of g.pedestrians)actors.push({y:p.y+24,draw:()=>person(p.x,p.y,p.id,p.phase)});
     for(const m of g.monsters)if(!m.revealed||m.revealProgress<1)actors.push({y:m.y+24,draw:()=>{c.save();c.globalAlpha=m.revealed?1-m.revealProgress:1;person(m.x,m.y,m.id,m.age*5);c.restore();}});
-    const wy=H-32-g.mainRush*83,wx=g.x+68*(1-g.mainRush);
-    const womanAlpha=g.mainRush>0?Math.min(1,g.mainRush*5):Math.max(0,Math.min(1,(g.mainWoman-.2)*2));
-    if(womanAlpha<1)actors.push({y:wy+20,draw:()=>{c.save();c.globalAlpha=1-womanAlpha;person(wx,wy,0,g.time*5);c.restore();}});
-    actors.push({y:H-85,draw:()=>bike(g.x,H-115,g.lean,g.burst,g.time)});
+    const wy=g.woman.y,wx=g.woman.x;
+    const womanAlpha=g.mainWoman;
+    if(womanAlpha<1)actors.push({y:wy+20,draw:()=>{c.save();c.globalAlpha=1-womanAlpha;c.translate(wx,wy);c.scale(1,1+womanAlpha*.4);person(0,0,40,g.woman.phase);c.restore();}});
+    actors.push({y:H/2+24,draw:()=>{c.save();c.translate(g.x,H/2);c.rotate(g.heading);bike(0,0,0,g.moving?g.burst:0,g.time);c.restore();}});
     actors.sort((a,b)=>a.y-b.y).forEach(a=>a.draw());
     for(const part of g.particles)P(part.x,part.y,2,4,part.kind==='boost'?'#edc96f':'#749096');
     c.restore();
