@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const repo = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(repo, 'style.css'), 'utf8');
-const source = ['roads.js','world.js','pixel-art.js','monster-art.js','game.js'].map(file=>fs.readFileSync(path.join(repo,file),'utf8')).join('\n');
+const source = ['roads.js','world.js','pixel-art.js','monster-art.js','minigames.js','game.js'].map(file=>fs.readFileSync(path.join(repo,file),'utf8')).join('\n');
 let random = () => 0.999999;
 let sequence = 1;
 const timers = new Map();
@@ -67,7 +67,7 @@ for (const match of html.matchAll(/<([a-z][a-z\d]*)\b([^>]*\bid="([^"]+)"[^>]*)>
   const [, tag, attrs, id] = match;
   const classes = new Set((attrs.match(/\bclass="([^"]*)"/)?.[1] || '').split(/\s+/).filter(Boolean));
   const element = {
-    id, tagName: tag.toLowerCase(), textContent: '',
+    id, tagName: tag.toLowerCase(), textContent: '', style:{},
     classList: {
       add(...names) { names.forEach(name => classes.add(name)); },
       remove(...names) { names.forEach(name => classes.delete(name)); },
@@ -129,7 +129,7 @@ vm.createContext(sandbox);
 vm.runInContext(source + `\n;globalThis.testGame = {
   get game() { return game; }, get keys() { return keys; }, get biomes() { return biomes; },
   begin, reset, draw, update, useBoost, updateMainWoman, rewindWorld, pursue, spawnBoost, spawnMonster, spawnPedestrian, spawnTraffic, updateTraffic, encounter, startMemoryGame, chooseDoor,
-  RoadNetwork, World, MonsterArt,
+  RoadNetwork, World, MonsterArt, MiniGames, startChallenge, updateBoost,
   W, H
 };`, sandbox, { filename: 'game.js' });
 const api = sandbox.testGame;
@@ -264,14 +264,38 @@ test('woman transformation takes ten active minutes and pauses for memory doors'
 test('rare people transform into animated lethal monsters; ordinary walkers are harmless',()=>{
   fresh(123);quiet();let hidden=0;
   for(let i=0;i<100;i++){api.game.monsters=[];api.spawnMonster();hidden+=!api.game.monsters[0].revealed;}assert(hidden>=85);
-  for(let id=0;id<40;id++){fresh();quiet();api.spawnMonster('chase');const m=api.game.monsters[0];Object.assign(m,{id,x:api.game.x,y:api.game.y,revealed:true,revealProgress:1});api.update(.01);assert.equal(api.game.running,false);}
+  for(let id=0;id<40;id++){fresh();quiet();api.spawnMonster('chase');const m=api.game.monsters[0];Object.assign(m,{id,x:api.game.x,y:api.game.y,revealed:true,revealProgress:1,revealGrace:0});api.update(.01);assert.equal(api.game.running,false);}
   fresh();quiet();api.game.pedestrians.push({x:320,y:0,vx:0,vy:0,id:0,phase:0});api.update(.01);assert.equal(api.game.running,true);
 });
-test('boost requires directional input, respects obstacles, and gives an escape window',()=>{
-  fresh();quiet();api.useBoost();const g=api.game;api.update(.04);assert.equal(g.y,0);
-  api.keys.w=true;const before=g.y;api.update(.04);assert(before-g.y>10);assert.equal(g.boost,0);
-  for(let i=0;i<20;i++)api.spawnBoost();
-  assert(g.pickups.every(p=>!api.World.blocked(p.x,p.y,13)));
+test('held boost drains proportionally, stops on release and displays remaining fuel',()=>{
+  fresh();quiet();const g=api.game;g.pickups=[];g.pickupTimer=1e6;
+  api.keys[' ']=true;api.update(.04);assert.equal(g.boost,1,'standing still must not burn fuel');
+  api.keys.w=true;const before=g.y;api.update(.04);assert(before-g.y>14);assert(Math.abs(g.boost-(1-.04*.18))<1e-8);
+  delete api.keys[' '];const fuel=g.boost;api.update(.04);assert.equal(g.boost,fuel);assert.equal(g.burst,0);
+  assert.equal(elements.get('#boost-meter').value,fuel);
+  api.keys.Shift=true;g.boost=.001;api.update(.04);assert.equal(g.boost,0);api.update(.04);assert.equal(g.burst,0);
+  g.pickups.push({x:g.x,y:g.y-8,pulse:0});delete api.keys.Shift;api.update(.04);assert(Math.abs(g.boost-.35)<1e-8);
+  listeners.get('window:blur')();assert.equal(g.burst,0);
+});
+test('human transformations are animated but harmless for the full warning and grace period',()=>{
+  fresh();quiet();const g=api.game;g.woman.x=320;g.woman.y=900;
+  api.spawnMonster('disguise');const m=g.monsters[0];Object.assign(m,{x:g.x,y:g.y,kind:'chase'});
+  for(let i=0;i<160;i++){g.woman.y=900;api.update(.02);assert(g.running,'warning contact must not kill');}
+  assert(m.revealProgress===1&&m.revealGrace>0);assert.equal(m.moving,false);
+  for(let i=0;i<40&&g.running;i++){g.woman.y=900;api.update(.02);}
+  assert.equal(g.running,false,'fully armed monsters must remain lethal');
+});
+test('new challenges pause pursuit and fuel, scale difficulty, and safely reward or fail',()=>{
+  fresh();quiet();let g=api.game;g.challengeIndex=1;g.time=0;g.boost=.2;api.startChallenge();
+  assert(api.MiniGames.active);const early=api.MiniGames.state,earlyLength=early.sequence.length,earlyBeat=early.beat,time=g.time,wy=g.woman.y;
+  api.update(4);assert.equal(g.time,time);assert.equal(g.woman.y,wy);assert.equal(g.boost,.2);
+  for(const arrow of [...early.sequence])api.MiniGames.input(arrow);
+  assert(!api.MiniGames.active);assert.equal(g.boost,.7);assert(g.resumeGrace>0);
+  g.challengeIndex=1;g.time=800;api.startChallenge();const hard=api.MiniGames.state;assert(hard.sequence.length>earlyLength&&hard.beat<earlyBeat);
+  api.update(10);api.MiniGames.input((hard.sequence[0]+1)%4);assert(!api.MiniGames.active);assert(g.running&&g.resumeGrace>0);
+  g.challengeIndex=2;g.time=0;api.startChallenge();const easy=api.MiniGames.state,wide=easy.width;easy.position=easy.left+easy.width/2;api.MiniGames.input('stop');assert(!api.MiniGames.active);
+  g.challengeIndex=2;g.time=800;api.startChallenge();const difficult=api.MiniGames.state;assert(difficult.width<wide&&difficult.required>1);
+  difficult.position=0;api.MiniGames.input('stop');assert(!api.MiniGames.active);assert(g.running);
 });
 test('time loops restore the exact decorated location without reversing the ten-minute clock',()=>{
   fresh();quiet();const g=api.game;api.keys.w=true;advance(8);const target=g.history[Math.max(0,g.history.length-28)];
@@ -289,7 +313,8 @@ test('extended simulation bounds actors, scenery cache, and rewind history',()=>
     api.keys.w=true;
     if(g.free&&frame%600<300)api.keys.a=true;
     if(g.free&&frame%600>=300)api.keys.d=true;
-    if(g.boost&&Math.hypot(g.woman.x-g.x,g.woman.y-g.y)<140)api.useBoost();
+    if(g.boost&&Math.hypot(g.woman.x-g.x,g.woman.y-g.y)<180)api.keys[' ']=true;
+    if(api.MiniGames.active){const s=api.MiniGames.state;if(s.kind==='sequence'&&s.stage==='input')api.MiniGames.input(s.sequence[s.index]);else if(s.kind==='timing'&&s.position>s.left&&s.position<s.left+s.width)api.MiniGames.input('stop');}
     api.update(.04);
     assert(g.monsters.length<=3&&g.pickups.length<=8&&g.pedestrians.length<=36&&g.traffic.length<=8&&g.history.length<=48);
     assert(!api.World.blocked(g.x,g.y,13));assert(api.World.cacheSize<=3000);

@@ -24,9 +24,9 @@ const lerp=(a,b,t)=>a+(b-a)*t;
 function smooth(a,b,x){const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);}
 function showEvent(text,seconds=1.8){eventEl.textContent=text;clearTimeout(eventTimeout);eventTimeout=setTimeout(()=>{eventEl.textContent='';},seconds*1000);}
 function reset(){
-  clearTimeout(eventTimeout);for(const key of Object.keys(keys))delete keys[key];
+  MiniGames.reset();clearTimeout(eventTimeout);for(const key of Object.keys(keys))delete keys[key];
   game={running:false,time:0,d:0,x:320,y:0,cameraX:0,cameraY:-H/2,scroll:H/2,heading:0,lean:0,moving:false,free:false,
-    boost:1,burst:0,setback:0,mainWoman:0,mainRush:0,forcedTimer:0,rushTimer:45,
+    boost:1,burst:0,boostHeldTime:0,resumeGrace:0,challengeIndex:0,setback:0,mainWoman:0,mainRush:0,forcedTimer:0,rushTimer:45,
     woman:{x:320,y:300,path:[],repath:0,phase:0,moving:false},
     monsterTimer:14,pickupTimer:2,trafficTimer:2,pedestrianTimer:1,
     memoryTimer:0,nextMemory:35,memory:null,monsters:[],pickups:[],traffic:[],pedestrians:[],particles:[],
@@ -40,7 +40,7 @@ function isHighway(){return !game.free;}
 function currentBiome(){return World.biome(game.x,game.y);}
 function updateBiome(){const next=currentBiome();if(game.biome!==next){game.biome=next;showEvent(biomes[next][0],1.5);}}
 function updateHUD(){
-  distanceEl.textContent=Math.floor(game.d)+'m';biomeEl.textContent=biomes[game.biome][0];boostEl.textContent=game.burst>0?'ACTIVE':game.boost?'READY':'EMPTY';
+  distanceEl.textContent=Math.floor(game.d)+'m';biomeEl.textContent=biomes[game.biome][0];boostEl.textContent=(game.burst>0?'ON ':'')+Math.round(game.boost*100)+'%';$('#boost-meter').value=game.boost;
   $('#next-biome').textContent=game.free?'EXPLORE ANY DIRECTION · '+Math.floor(game.time/60)+':'+String(Math.floor(game.time%60)).padStart(2,'0'):Math.max(0,Math.ceil((game.y-World.highwayEnd)/8))+'m TO HIGHWAY EXIT';
 }
 function forwardPoint(distance,spread=0){return World.openPoint(game.x+Math.sin(game.heading)*distance+rand(-spread,spread),game.y-Math.cos(game.heading)*distance+rand(-spread,spread));}
@@ -73,24 +73,43 @@ function spawnPedestrian(initial=false){
   game.pedestrians.push({...position,vx:road.dx*side*15,vy:road.dy*side*15,id:Math.floor(rand(0,40)),phase:rand(0,6)});
 }
 function useBoost(){
-  if(!game.running||game.memoryTimer!==0||!game.boost||game.burst>0)return;
-  game.boost=0;game.burst=2.8;game.forcedTimer=0;game.setback=0;game.rushTimer=Math.max(game.rushTimer,25);
-  for(const m of game.monsters)if(m.kind==='loop'||Math.hypot(m.x-game.x,m.y-game.y)<145)m.life=0;
-  showEvent('BOOST — HOLD A DIRECTION TO ESCAPE',1.2);updateHUD();
+  return game.running&&!MiniGames.active&&game.memoryTimer===0&&game.boost>0;
+}
+function updateBoost(dt,moving){
+  const active=useBoost()&&moving&&(keys[' ']||keys.Shift);
+  game.burst=active?Math.min(1,game.boost/(dt*.18||1)):0;
+  if(game.burst>0){game.boost=Math.max(0,game.boost-dt*.18);game.boostHeldTime+=dt;
+    if(game.boostHeldTime>.35)for(const m of game.monsters)if(m.kind==='loop')m.life=0;
+  }else game.boostHeldTime=0;
+}
+function finishChallenge(ok){
+  for(const key of Object.keys(keys))delete keys[key];
+  game.burst=0;game.resumeGrace=2.5;game.nextMemory=rand(32,44);
+  if(ok){game.boost=Math.min(1,game.boost+.5);showEvent('CHALLENGE COMPLETE — +50% FUEL',2);}
+  else{game.red=.3;game.setback=.8;showEvent('MISSED — KEEP MOVING. YOU HAVE A HEAD START.',2);}
+  updateHUD();
+}
+function startChallenge(){
+  if(!game.running||game.memoryTimer!==0||MiniGames.active||game.forcedTimer>0)return;
+  const type=game.challengeIndex++%3;
+  if(type===0){startMemoryGame();return;}
+  for(const key of Object.keys(keys))delete keys[key];game.burst=0;
+  MiniGames.start(type===1?'sequence':'timing',Math.min(8,Math.floor(game.time/100)),finishChallenge);
 }
 function spawnMonster(forceKind=null){
   if(game.monsters.length>=3)return;
   const id=Math.floor(rand(0,40)),position=forwardPoint(rand(230,430),180),kind=forceKind||(id%9===0?'loop':'chase');
   const hidden=forceKind==='disguise'||Math.random()<.94;
-  game.monsters.push({...position,id,name:monsterTypes[id],kind,disguised:hidden,revealed:!hidden,revealProgress:hidden?0:1,age:0,phase:0,life:1,speed:rand(85,130),path:[],repath:0,moving:false});
+  game.monsters.push({...position,id,name:monsterTypes[id],kind,disguised:hidden,revealed:!hidden,revealProgress:hidden?0:1,revealGrace:hidden?.7:0,transformDuration:2.8,age:0,phase:0,life:1,speed:rand(85,130),path:[],repath:0,moving:false});
 }
 function encounter(){spawnMonster();}
 function startMemoryGame(){
-  if(!game.running||game.memoryTimer!==0||game.forcedTimer>0)return;
+  if(!game.running||game.memoryTimer!==0||game.forcedTimer>0||MiniGames.active)return;
   const digits=Math.min(7,2+Math.floor(game.time/90));
   const answer=String(Math.floor(rand(10**(digits-1),10**digits)));
   const fake=answer.split(''),at=Math.floor(Math.random()*digits);
   fake[at]=String((Number(fake[at])+1)%10);
+  for(const key of Object.keys(keys))delete keys[key];game.burst=0;
   game.memory={answer,fake:fake.join('')};game.memoryTimer=2.7;
   memoryNumber.textContent=answer;memoryPhase.classList.remove('hidden');
   doors.classList.add('hidden');memory.classList.remove('hidden');showEvent('REMEMBER',1.4);
@@ -108,11 +127,12 @@ function chooseDoor(value){
   game.memory=null;game.memoryTimer=0;game.nextMemory=rand(28,40);memory.classList.add('hidden');
   if(correct){game.boost=1;showEvent('YOU REMEMBERED — BOOST READY',1.4);}
   else{game.red=.6;game.shake=.35;game.setback=1.5;showEvent('WRONG DOOR — KEEP DRIVING',1.6);}
+  for(const key of Object.keys(keys))delete keys[key];game.resumeGrace=2.5;game.burst=0;
   updateHUD();
 }
 function endRun(reason){
   if(!game.running)return;
-  game.running=false;game.red=.85;game.mainRush=0;
+  game.running=false;game.red=.85;game.mainRush=0;game.burst=0;MiniGames.reset();
   clearTimeout(eventTimeout);eventEl.textContent='';
   for(const key of Object.keys(keys))delete keys[key];
   memory.classList.add('hidden');
@@ -126,7 +146,10 @@ function pursue(actor,dt,speed){
   actor.repath-=dt;
   if(actor.repath<=0){actor.path=World.route(actor,game,10);actor.repath=.5;}
   if(World.clear(actor.x,actor.y,game.x,game.y,10))actor.path=[{x:game.x,y:game.y}];
-  let budget=speed*dt,walked=0;
+  // Two push-offs per stride: a small acceleration after foot contact, then
+  // coasting through the airborne phase. Animation phase follows real travel.
+  const propulsion=1+.18*Math.cos((actor.phase||0)*2-.8);
+  let budget=speed*dt*propulsion,walked=0;
   while(budget>0&&actor.path.length){
     const target=actor.path[0],dx=target.x-actor.x,dy=target.y-actor.y,len=Math.hypot(dx,dy);
     if(len<3){actor.path.shift();continue;}
@@ -145,8 +168,8 @@ function updateMainWoman(dt){
   // Catch-up only at long range keeps her visible without teleporting her or
   // following the player's recorded trail. A circling rider is intercepted.
   const speed=115+game.mainWoman*28+Math.max(0,gap-200)*6+(game.forcedTimer>0?75:0);
-  pursue(woman,dt,speed);
-  if(Math.hypot(woman.x-game.x,woman.y-game.y)<27)endRun('SHE CAUGHT YOU');
+  if(game.resumeGrace<=0)pursue(woman,dt,speed);else woman.moving=false;
+  if(game.resumeGrace<=0&&Math.hypot(woman.x-game.x,woman.y-game.y)<27)endRun('SHE CAUGHT YOU');
 }
 function rewindWorld(){
   if(game.history.length<8)return false;
@@ -160,19 +183,21 @@ function rewindWorld(){
 }
 function update(dt){
   if(!game.running)return;
+  if(MiniGames.active){game.burst=0;MiniGames.update(dt);return;}
   if(game.memoryTimer>0){game.memoryTimer-=dt;if(game.memoryTimer<=0)showMemoryDoors();return;}
   if(game.memoryTimer===-1)return;
-  game.time+=dt;
+  game.time+=dt;game.resumeGrace=Math.max(0,game.resumeGrace-dt);
   const mx=(keys.ArrowRight||keys.d?1:0)-(keys.ArrowLeft||keys.a?1:0),my=(keys.ArrowDown||keys.s?1:0)-(keys.ArrowUp||keys.w?1:0),length=Math.hypot(mx,my);
+  updateBoost(dt,length>0);
   const oldX=game.x,oldY=game.y;
-  if(length){game.heading=Math.atan2(mx,-my);const speed=(game.burst>0?380:220)*(game.setback>0?.65:1);World.move(game,mx/length*speed*dt,my/length*speed*dt,13);}
+  if(length){game.heading=Math.atan2(mx,-my);const speed=(220+160*game.burst)*(game.setback>0?.65:1);World.move(game,mx/length*speed*dt,my/length*speed*dt,13);}
   if(isHighway()){game.x=clamp(game.x,134,506);game.y=Math.min(150,game.y);if(game.y<World.highwayEnd-20){game.free=true;showEvent('THE HIGHWAY ENDS — EXPLORE ANY DIRECTION',3);}}
   const travelled=Math.hypot(game.x-oldX,game.y-oldY);game.moving=travelled>.01;game.d+=travelled/8;
-  game.setback=Math.max(0,game.setback-dt);game.burst=Math.max(0,game.burst-dt);game.red=Math.max(0,game.red-dt);game.shake=Math.max(0,game.shake-dt);
+  game.setback=Math.max(0,game.setback-dt);game.red=Math.max(0,game.red-dt);game.shake=Math.max(0,game.shake-dt);
   game.cameraX=game.x-W/2;game.cameraY=game.y-H/2;game.scroll=-game.cameraY;
   updateBiome();updateMainWoman(dt);if(!game.running)return;
   for(const p of game.pickups)p.pulse+=dt;
-  game.pickups=game.pickups.filter(p=>{if(Math.hypot(p.x-game.x,p.y-game.y)<30){game.boost=1;showEvent('BOOST READY',.8);return false;}return Math.hypot(p.x-game.x,p.y-game.y)<950;});
+  game.pickups=game.pickups.filter(p=>{if(Math.hypot(p.x-game.x,p.y-game.y)<30){game.boost=Math.min(1,game.boost+.35);showEvent('+35% BOOST FUEL',.8);return false;}return Math.hypot(p.x-game.x,p.y-game.y)<950;});
   game.pickupTimer-=dt;if(game.pickupTimer<=0){spawnBoost();game.pickupTimer=3;}
   game.trafficTimer-=dt;if(game.trafficTimer<=0){spawnTraffic();game.trafficTimer=3;}
   updateTraffic(dt);
@@ -184,12 +209,22 @@ function update(dt){
   for(const m of game.monsters){
     if(m.life<=0)continue;m.age+=dt;
     const gap=Math.hypot(m.x-game.x,m.y-game.y);
-    if(!m.revealed){World.move(m,Math.sin(m.id)*12*dt,Math.cos(m.id)*12*dt,8);m.phase+=dt*4;if(gap<170){m.revealed=true;game.red=.2;if(m.kind==='loop'&&game.loopCooldown===0&&rewindWorld())break;showEvent(m.name.toUpperCase(),1);}}
-    if(m.revealed){m.revealProgress=Math.min(1,m.revealProgress+dt*2.5);pursue(m,dt,m.speed);if(Math.hypot(m.x-game.x,m.y-game.y)<25){endRun('CAUGHT BY '+m.name.toUpperCase());return;}}
+    if(!m.revealed){
+      World.move(m,Math.sin(m.id)*12*dt,Math.cos(m.id)*12*dt,8);m.phase+=dt*4;
+      if(gap<220){m.revealed=true;m.revealProgress=0;m.revealGrace=.7;m.transformDuration=2.8;game.red=.12;showEvent('SOMETHING IS WRONG — MOVE AWAY FROM THE AMBER RING',2.8);}
+    }
+    if(m.revealed){
+      if(m.revealProgress<1){m.moving=false;m.revealProgress=Math.min(1,m.revealProgress+dt/(m.transformDuration||2.8));continue;}
+      if(m.revealGrace>0){m.moving=false;m.revealGrace=Math.max(0,m.revealGrace-dt);continue;}
+      if(game.resumeGrace>0){m.moving=false;continue;}
+      if(m.kind==='loop'&&game.loopCooldown===0&&rewindWorld())break;
+      pursue(m,dt,m.speed);
+      if(Math.hypot(m.x-game.x,m.y-game.y)<25){endRun('CAUGHT BY '+m.name.toUpperCase());return;}
+    }
   }
   game.monsters=game.monsters.filter(m=>m.life>0&&Math.hypot(m.x-game.x,m.y-game.y)<1000&&m.age<55);
   game.historyTimer-=dt;if(game.historyTimer<=0){game.history.push({x:game.x,y:game.y,heading:game.heading,free:game.free});if(game.history.length>48)game.history.shift();game.historyTimer=.25;}
-  game.nextMemory-=dt;if(game.nextMemory<=0)startMemoryGame();
+  game.nextMemory-=dt;if(game.nextMemory<=0)startChallenge();
   game.cameraX=game.x-W/2;game.cameraY=game.y-H/2;game.scroll=-game.cameraY;updateBiome();updateHUD();
 }
 function draw(){
@@ -204,9 +239,14 @@ function loop(t){const dt=Math.min(.04,(t-last)/1000||0);last=t;update(dt);draw(
 function begin(){if(!MonsterArt.loaded)return;reset();game.running=true;startScreen.classList.add('hidden');death.classList.add('hidden');last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);}
 start.addEventListener('click',begin);restart.addEventListener('click',begin);
 leftDoor.addEventListener('click',()=>chooseDoor(leftDoor.textContent));rightDoor.addEventListener('click',()=>chooseDoor(rightDoor.textContent));
-addEventListener('keydown',e=>{keys[e.key.length===1?e.key.toLowerCase():e.key]=true;if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' ','Shift'].includes(e.key))e.preventDefault();if((e.key===' '||e.key==='Shift')&&!e.repeat)useBoost();});
-addEventListener('keyup',e=>{keys[e.key.length===1?e.key.toLowerCase():e.key]=false;});
-addEventListener('blur',()=>{for(const key of Object.keys(keys))delete keys[key];});
+addEventListener('keydown',e=>{
+  const key=e.key.length===1?e.key.toLowerCase():e.key;
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' ','Shift'].includes(key))e.preventDefault();
+  if(MiniGames.active){if(key==='Enter')e.preventDefault();if(!e.repeat)MiniGames.key(key);return;}
+  if(game.memoryTimer!==0)return;keys[key]=true;
+});
+addEventListener('keyup',e=>{const key=e.key.length===1?e.key.toLowerCase():e.key;keys[key]=false;if(!keys[' ']&&!keys.Shift){game.burst=0;game.boostHeldTime=0;updateHUD();}});
+addEventListener('blur',()=>{for(const key of Object.keys(keys))delete keys[key];game.burst=0;game.boostHeldTime=0;updateHUD();});
 start.disabled=true;start.textContent='LOADING CREATURES…';
 MonsterArt.ready.then(()=>{start.disabled=false;start.textContent='START DRIVE';draw();}).catch(()=>{start.textContent='RELOAD TO RETRY';eventEl.textContent='Creature artwork could not load. Refresh to retry.';});
 reset();

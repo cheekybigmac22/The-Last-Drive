@@ -7,12 +7,13 @@ A pixel-art motorcycle escape game with smooth scribble-horror creatures.
 Open `index.html` in a modern desktop browser, or use the repository's GitHub Pages deployment when enabled. The game has no build step or external runtime dependencies.
 
 - **WASD / arrow keys:** ride in any direction. Release the keys to stop.
-- **Space / Shift:** use a collected boost while holding a direction.
+- **Hold Space / Shift + a direction:** spend boost fuel for extra speed. Release boost to immediately save the remaining fuel. The HUD bar shows your fuel; a full tank lasts about 5.6 seconds and pickups add 35%.
 - Head upward along the opening straight highway. After roughly 400 meters, its end opens into the natural world. The bike remains centered on screen.
 - Houses, trees, rocks and other substantial scenery are solid. Slide around them; boost does not let you drive through them.
 - The woman begins behind you as a person. She takes direct shortcuts and paths around obstacles, catches a stationary rider, and gradually becomes a scribble monster over **ten active minutes**. Memory events pause the world and her transformation.
-- Most other monsters begin as ordinary pixel people. Revealed monster contact is fatal; normal pedestrians are harmless.
-- Remember the number and choose its matching door. Correct answers recharge your boost.
+- Most other monsters begin as ordinary pixel people. Their amber ring marks a 2.8-second twisting, stretching transformation plus a 0.7-second escape grace period. They cannot move or kill you during that warning. Red rings mean the monster is armed and contact is fatal; normal pedestrians remain harmless.
+- Three challenge types rotate: number-memory doors, Echo Signal (watch and repeat arrows), and Engine Tune (stop a moving marker in the green zone). Number lengths, arrow sequences, and timing difficulty grow with active run time, within capped limits. All challenges pause pursuit, transformation clocks and fuel consumption. Correct memory doors fill the tank; other successes add 50%. Every completed challenge gives a 2.5-second safe head start, including after a mistake.
+- Running creatures compress on landing, push off, and coast through a brief flight phase. Their actual pursuit speed pulses slightly with those push-offs rather than remaining completely uniform.
 
 ## World
 

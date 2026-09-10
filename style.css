@@ -1,4 +1,13 @@
 *{box-sizing:border-box}
+#boost-meter{width:90px;height:12px;accent-color:#78dbc4;border:1px solid #b6dac4;background:#27374a}
+#boost-meter::-webkit-progress-bar{background:#27374a}
+#boost-meter::-webkit-progress-value{background:#78dbc4}
+#challenge-display{font-size:40px;min-height:65px;color:#eddfb3}
+#challenge-arrows{display:flex;flex-wrap:wrap;justify-content:center}
+#challenge-arrows button{margin:6px;padding:12px;font-size:24px}
+#timing-track{position:relative;width:85%;height:36px;background:#334258;border:2px solid #a9bbbe;margin:24px 0}
+#timing-target{position:absolute;top:0;height:100%;background:#4fbd8b}
+#timing-needle{position:absolute;top:-5px;width:4px;height:42px;background:#fff0bb;transform:translateX(-50%)}
 #monster-layer{position:absolute;inset:0;pointer-events:none;image-rendering:auto;background:transparent}
 html,body{margin:0;min-height:100%;background:#151b2c;color:#e1e7d9;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 body{min-height:100dvh;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at top,#303e53,#121827 72%)}

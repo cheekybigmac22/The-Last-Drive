@@ -10,7 +10,7 @@
 <main id="game-wrap">
   <header class="hud">
     <div><b>THE LAST DRIVE</b><span id="biome">HIGHWAY</span><span id="next-biome">400m TO DESERT</span></div>
-    <div class="stats"><span>DIST <strong id="distance">0m</strong></span><span>BOOST <strong id="boost">—</strong></span></div>
+    <div class="stats"><span>DIST <strong id="distance">0m</strong></span><span>BOOST <strong id="boost">100%</strong><progress id="boost-meter" max="1" value="1" aria-label="Boost fuel"></progress></span></div>
   </header>
   <canvas id="game" width="640" height="820" aria-label="The Last Drive game"></canvas>
   <canvas id="monster-layer" width="1280" height="1640" aria-hidden="true"></canvas>
@@ -20,12 +20,19 @@
     <h1>THE LAST DRIVE</h1>
     <p>A road that remembers you.<br>Stay moving. Do not let them touch you.</p>
     <button id="start">START DRIVE</button>
-    <small>RIDE &nbsp; W A S D or ARROW KEYS<br>Release directions to stop · SPACE / SHIFT to boost<br><br>Head UP to leave the straight highway, then explore freely.<br>Scenery is solid. She takes shortcuts. Keep moving.<br>Her transformation takes ten minutes. Contact is fatal.</small>
+    <small>RIDE &nbsp; W A S D or ARROW KEYS<br>HOLD SPACE / SHIFT to spend fuel · Release to save it<br><br>Head UP to leave the straight highway, then explore freely.<br>Scenery is solid. She takes shortcuts. Keep moving.<br>Amber transformations are safe; red means danger.<br>Challenges pause the chase and reward fuel.</small>
   </section>
   <section id="memory" class="panel hidden">
     <p class="eyebrow">MEMORY TEST</p>
     <div id="memory-phase"><p>REMEMBER THIS NUMBER</p><strong id="memory-number">22</strong></div>
     <div id="doors" class="hidden"><p>WHICH NUMBER DID YOU SEE?</p><div><button id="door-left" class="door"></button><button id="door-right" class="door"></button></div></div>
+  </section>
+  <section id="challenge" class="panel hidden">
+    <p class="eyebrow">CHASE PAUSED</p><h2 id="challenge-title"></h2>
+    <p id="challenge-instruction"></p><strong id="challenge-display"></strong>
+    <div id="challenge-arrows" class="hidden"><button id="signal-0" aria-label="Up">↑</button><button id="signal-1" aria-label="Right">→</button><button id="signal-2" aria-label="Down">↓</button><button id="signal-3" aria-label="Left">←</button></div>
+    <div id="timing-track" class="hidden"><div id="timing-target"></div><div id="timing-needle"></div></div>
+    <button id="challenge-lock" class="hidden">STOP</button>
   </section>
   <section id="death" class="panel hidden"><p class="eyebrow">THE ROAD CLAIMED YOU</p><h2 id="death-title">YOU WERE CAUGHT</h2><p id="death-score"></p><p>Steer around monsters. Use your boost before contact.</p><button id="restart">DRIVE AGAIN</button></section>
 </main>
@@ -33,6 +40,7 @@
 <script src="world.js"></script>
 <script src="pixel-art.js"></script>
 <script src="monster-art.js"></script>
+<script src="minigames.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

@@ -350,7 +350,19 @@ const PixelArt = (() => {
     for(const v of g.traffic)actors.push({y:v.y+46,draw:()=>{c.save();c.translate(Math.round(v.x/2)*2,Math.round(v.y/2)*2);c.rotate(v.angle||0);car(0,0,v.tone,v.model);c.restore();}});
     for(const b of g.pickups)actors.push({y:b.y+15,draw:()=>pickup(b.x,b.y,g.time+b.pulse)});
     for(const p of g.pedestrians)actors.push({y:p.y+24,draw:()=>person(p.x,p.y,p.id,p.phase)});
-    for(const m of g.monsters)if(!m.revealed||m.revealProgress<1)actors.push({y:m.y+24,draw:()=>{c.save();c.globalAlpha=m.revealed?1-m.revealProgress:1;person(m.x,m.y,m.id,m.age*5);c.restore();}});
+    for(const m of g.monsters){
+      if(!m.revealed||m.revealProgress<1)actors.push({y:m.y+24,draw:()=>{
+        const t=m.revealed?m.revealProgress:0;
+        c.save();c.globalAlpha=1-t*.9;c.translate(m.x,m.y);c.rotate(Math.sin(m.age*23)*t*.065);c.scale(1-t*.2,1+t*.65);
+        person(0,0,m.id,m.revealed?Math.sin(m.age*16)*t:m.age*5);
+        if(t>.3){P(-4,-20,3,3,cream);P(3,-20,3,3,cream);}c.restore();
+      }});
+      if(m.revealed)actors.push({y:m.y+50,draw:()=>{
+        const safe=m.revealProgress<1||m.revealGrace>0,color=safe?'#f3cb6e':'#ed786a';
+        for(let i=0;i<40;i++){const a=i/40*Math.PI*2;P(m.x+Math.cos(a)*44,m.y+Math.sin(a)*25+8,3,3,color);}
+        if(safe){frame(m.x-30,m.y+40,60,8,ink,'#594452');P(m.x-28,m.y+42,56*m.revealProgress,4,color);label('RUN',m.x-12,m.y-48,color);}
+      }});
+    }
     const wy=g.woman.y,wx=g.woman.x;
     const womanAlpha=g.mainWoman;
     if(womanAlpha<1)actors.push({y:wy+20,draw:()=>{c.save();c.globalAlpha=1-womanAlpha;c.translate(wx,wy);c.scale(1,1+womanAlpha*.4);person(0,0,40,g.woman.phase);c.restore();}});

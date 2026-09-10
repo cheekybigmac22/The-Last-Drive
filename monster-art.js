@@ -36,7 +36,10 @@ const MonsterArt = (() => {
     y-=lift*(.085*leg+.035*bend)*profile.stride;
     y+=Math.max(0,-stride)*.018*leg;
     x+=Math.sin(phase)*.014*(1-v);
-    y-=Math.abs(Math.sin(phase))*.018*profile.bob;
+    const flight=Math.max(0,Math.sin(phase*2-.5));
+    const landing=Math.max(0,-Math.sin(phase*2-.5));
+    y-=flight*(1-flight*.3)*.045*profile.bob;
+    y+=landing*.014*(1-v); // torso compresses into landing, then drives upward
     return {x,y};
   }
   function triangle(context,texture,src,dst){
@@ -94,7 +97,7 @@ const MonsterArt = (() => {
     const shake=g.shake&&g.running?Math.round(Math.sin(g.time*51)*g.shake*4)*2:0;
     c.save();c.translate(shake-g.cameraX,0);
     const actors=[];
-    for(const m of g.monsters)if(m.life>0&&m.revealed)actors.push({x:m.x,y:m.y,id:m.id,age:m.age,alpha:m.revealProgress,moving:m.moving,phase:m.phase});
+    for(const m of g.monsters)if(m.life>0&&m.revealed)actors.push({x:m.x,y:m.y,id:m.id,age:m.age,alpha:m.revealProgress*m.revealProgress,moving:m.moving,phase:m.phase});
     if(g.mainWoman>0)actors.push({x:g.woman.x,y:g.woman.y,id:1,age:g.time,alpha:g.mainWoman,moving:g.woman.moving,phase:g.woman.phase});
     actors.sort((a,b)=>a.y-b.y).forEach(m=>creature(m.x,m.y,m.id,m.age,m.alpha,m.moving,m.phase));
     c.restore();
