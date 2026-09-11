@@ -40,3 +40,6 @@ Audio starts only after clicking START DRIVE. Synthesized wind, low drones, appr
 Run `node tests/game.cjs` for regression tests covering directional motion, stopping and camera centering, the straight opening highway, irregular biomes, solid landmarks, pursuit and pathfinding, ten-minute transformation, monster contact, boosts, memory doors, coordinate-preserving loops, and a twelve-minute seeded simulation with retries. These tests simulate the DOM and canvas API; they are not browser play-testing. Native canvas renders separately verify the real creature atlas and terrain.
 
 Creature artwork provenance and the generation prompt are in [assets/monster-art-notes.md](assets/monster-art-notes.md).
+# Latest chase update
+
+After her 2.5-second warning, the following woman re-enters near the screen edge behind the rider before sprinting. Pursuers now need time to brake and turn, and stumble briefly when blocked by scenery: weaving around solid landmarks buys escape time. Saved boost still outruns her sprint. Revealed monsters now use matte, grainy code-drawn ink masks rather than the previous generated atlas.

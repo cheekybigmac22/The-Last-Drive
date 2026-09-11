@@ -164,6 +164,7 @@ function endRun(reason){
 }
 
 function pursue(actor,dt,speed){
+  if(actor.stumble>0){actor.stumble=Math.max(0,actor.stumble-dt);actor.moving=false;return;}
   actor.repath-=dt;
   const dxGoal=game.x-actor.x,dyGoal=game.y-actor.y,distance=Math.hypot(dxGoal,dyGoal);
   // Long off-screen pursuits use a bounded look-ahead instead of repeatedly
@@ -178,11 +179,32 @@ function pursue(actor,dt,speed){
   while(budget>0&&actor.path.length){
     const target=actor.path[0],dx=target.x-actor.x,dy=target.y-actor.y,len=Math.hypot(dx,dy);
     if(len<3){actor.path.shift();continue;}
-    const step=Math.min(budget,len),ox=actor.x,oy=actor.y;World.move(actor,dx/len*step,dy/len*step,10);
+    const desired=Math.atan2(dy,dx);
+    if(actor.heading===undefined)actor.heading=desired;
+    const turn=Math.atan2(Math.sin(desired-actor.heading),Math.cos(desired-actor.heading));
+    actor.heading+=clamp(turn,-2.8*dt,2.8*dt);
+    // A pursuer must plant and turn; a sharp bike dodge buys real distance.
+    const step=Math.min(budget,len)*Math.max(.25,Math.cos(turn)),ox=actor.x,oy=actor.y;
+    World.move(actor,Math.cos(actor.heading)*step,Math.sin(actor.heading)*step,10);
     const moved=Math.hypot(actor.x-ox,actor.y-oy);walked+=moved;budget-=step;
-    if(moved<step*.4){actor.repath=0;break;}if(step===len)actor.path.shift();
+    if(moved<step*.4){actor.repath=0;actor.stumble=.45;actor.heading=desired;break;}
+    if(Math.hypot(target.x-actor.x,target.y-actor.y)<3)actor.path.shift();
+    break;
   }
   actor.moving=walked>.05;actor.phase=(actor.phase||0)+walked*.1;
+}
+function placeWomanAtEdge(){
+  // Re-enter behind the rider, never in contact range or inside scenery.
+  const behind=game.heading+Math.PI/2;
+  for(const extra of [0,30,60,100])for(const offset of [0,.3,-.3,.6,-.6,1,-1,1.5,-1.5]){
+    const dx=Math.cos(behind+offset),dy=Math.sin(behind+offset);
+    const radius=Math.min((285+extra)/Math.max(.001,Math.abs(dx)),(dy<0?270+extra:375+extra)/Math.max(.001,Math.abs(dy)));
+    const x=game.x+dx*radius,y=game.y+dy*radius;
+    if(!World.blocked(x,y,10)){
+      Object.assign(game.woman,{x,y,path:[],repath:0,stumble:0,heading:Math.atan2(-dy,-dx)});return true;
+    }
+  }
+  return false;
 }
 function updateMainWoman(dt){
   const stage=Math.min(5,Math.floor(game.time/120));
@@ -192,7 +214,7 @@ function updateMainWoman(dt){
   if(game.resumeGrace>0){woman.moving=false;return;}
   if(game.sprintWarning>0){
     game.sprintWarning=Math.max(0,game.sprintWarning-dt);
-    if(game.sprintWarning===0){game.forcedTimer=7;showEvent('SHE IS SPRINTING — USE YOUR SAVED BOOST',2);}
+    if(game.sprintWarning===0){placeWomanAtEdge();game.forcedTimer=7;showEvent('SHE IS SPRINTING — USE YOUR SAVED BOOST',2);}
   }else if(game.forcedTimer>0)game.forcedTimer=Math.max(0,game.forcedTimer-dt);
   else{
     game.rushTimer-=dt;

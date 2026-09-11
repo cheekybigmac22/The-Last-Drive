@@ -189,7 +189,7 @@ test('ten spatial biomes and forty animated monster identities render finite coo
   assert.equal(found.size,10);
   for(const [b,p] of found){Object.assign(api.game,p,{biome:b,cameraX:p.x-320,cameraY:p.y-410});api.draw();assert.equal(stack.length,0);}
   for(let id=0;id<40;id++){api.game.monsters=[];api.spawnMonster();Object.assign(api.game.monsters[0],{id,revealed:true,revealProgress:1,moving:true,phase:id*.3});api.draw();}
-  assert(atlasDrawCalls>=8,'all eight silhouettes should load their own texture');assert(api.MonsterArt.cachedFrames>8&&api.MonsterArt.cachedFrames<=136);
+  assert.equal(api.MonsterArt.textureCount,8);assert.equal(atlasDrawCalls,0,'legacy generated atlas must not render');assert(api.MonsterArt.cachedFrames>8&&api.MonsterArt.cachedFrames<=136);
 });
 test('bike stays centered, moves in all four directions, and stops on release',()=>{
   fresh();quiet();const g=api.game;api.update(.04);assert.equal(g.x,320);assert.equal(g.y,0);assert.equal(g.d,0);
@@ -320,6 +320,20 @@ test('new challenges pause pursuit and fuel, scale difficulty, and safely reward
 test('monster speed stays above riding and below boost across the whole stride',()=>{
   fresh();quiet();for(let i=0;i<40;i++){api.game.monsters=[];api.spawnMonster('chase');const m=api.game.monsters[0];assert(m.speed*.82>220);assert(m.speed*1.18<380);}
   assert(315*.82>220&&315*1.18<380);
+});
+test('sprint starts at the screen edge even when the woman was far away',()=>{
+  for(const heading of [0,Math.PI/2,Math.PI,-Math.PI/2]){
+    fresh();quiet();const g=api.game;g.heading=heading;g.woman.x=90000;g.woman.y=90000;g.sprintWarning=.01;
+    api.updateMainWoman(.01);const gap=Math.hypot(g.woman.x-g.x,g.woman.y-g.y);
+    assert(gap>240&&gap<510);assert(!api.World.blocked(g.woman.x,g.woman.y,10));assert.equal(g.forcedTimer,7);
+  }
+});
+test('sharp weaving forces a pursuer to brake and turn instead of snapping direction',()=>{
+  fresh();quiet();const g=api.game;g.x=320;g.y=-300;
+  const actor={x:320,y:0,path:[],repath:0,phase:0,heading:Math.PI/2};
+  api.pursue(actor,.04,280);assert(Math.abs(actor.heading-Math.PI/2)<=2.8*.04+.001);
+  assert(Math.hypot(actor.x-320,actor.y)<5,'a reverse turn should cost pursuit speed');
+  actor.stumble=.45;const x=actor.x,y=actor.y;api.pursue(actor,.04,280);assert.equal(actor.x,x);assert.equal(actor.y,y);
 });
 test('sprint attacks are warned, give no free fuel, and saved boost permits escape',()=>{
   function run(boost){

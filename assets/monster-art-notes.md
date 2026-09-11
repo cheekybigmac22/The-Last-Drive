@@ -1,5 +1,11 @@
 # Scribble creature artwork
 
+## Current renderer
+
+The game now uses original code-drawn ink figures in `monster-art.js`, not the generated atlas below. Eight angular mask silhouettes use hollow eyes, black mouths, crooked limbs, seeded grain and irregular pencil edges inspired by Asa's analog-horror references. These are procedural drawings, not drawings made by a human artist. Forty encounter identities retain their distinct emergence animations and existing running mesh. The pixel-art environment is unchanged. The old atlas remains only as an unused legacy asset; its provenance follows.
+
+## Legacy atlas (no longer loaded)
+
 `monsters-atlas.webp` is a transparent, 1536 × 1024, four-column/two-row atlas generated with the built-in ImageGen tool using Asa's three supplied ink-monster drawings as style references. The generated PNG was encoded as WebP at quality 92 with its transparency preserved. The references themselves are not bundled in the game.
 
 Eight distinct ink silhouettes supply the existing forty encounter identities and size/behavior variants. The second cell is the following woman. Revealed creatures render on a separate high-resolution, smoothly scaled canvas; people, motorcycle, roads and scenery stay on the low-resolution pixel grid. The forty identities have distinct procedural emergence variants across ten motion families, including climbing out of a splitting, collapsing human-shaped shell without gore. Duration decreases from about 1.87 seconds to 1.4 seconds over ten active minutes. An amber ring and progress bar show this harmless warning, followed by an unchanged 0.7 seconds of escape grace before the ring turns red and the monster can attack.

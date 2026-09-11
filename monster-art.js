@@ -2,14 +2,52 @@
    The street renderer must never send these images through its pixel buffer. */
 const MonsterArt = (() => {
   const layer=document.querySelector('#monster-layer'),c=layer.getContext('2d');
-  const atlas=new Image();
-  let loaded=false;
-  const ready=new Promise((resolve,reject)=>{
-    atlas.onload=()=>{loaded=true;resolve();};
-    atlas.onerror=()=>reject(new Error('Monster atlas could not load'));
-  });
-  atlas.src='assets/monsters-atlas.webp';
+  const loaded=true,ready=Promise.resolve();
   const frames=new Map(),textures=new Map(),frameCount=16;
+  // Original code-drawn ink masks: deliberately uneven, matte and photocopied.
+  // Texture randomness is seeded, so grain sticks to the body during animation.
+  function inkDrawing(ctx,cell){
+    let seed=719+cell*977;
+    const rnd=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+    const line=(points,width,color)=>{ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.lineWidth=width;ctx.strokeStyle=color;ctx.stroke();};
+    function shape(points,color){
+      ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.fillStyle=color;ctx.fill();
+      ctx.save();ctx.clip();
+      for(let n=0;n<1800;n++){ctx.fillStyle=n%3?'rgba(0,0,0,.23)':'rgba(205,186,172,.22)';ctx.fillRect(rnd()*192,rnd()*256,.4+rnd()*1.7,.5+rnd()*2);}
+      for(let n=0;n<45;n++){const x=rnd()*192,y=rnd()*256;line([[x,y],[x-5+rnd()*10,y+12+rnd()*35]],.5,'rgba(0,0,0,.45)');}
+      ctx.restore();
+      for(let n=0;n<4;n++)line([...points,points[0]].map(([x,y])=>[x+(rnd()-.5)*3,y+(rnd()-.5)*3]),.7,'#211a1b');
+    }
+    const lean=(cell%3-1)*7;
+    // Crooked, weight-bearing limbs and a torn coat silhouette.
+    for(const side of [-1,1]){
+      const arm=[[96+side*21,94],[96+side*(34+cell%3*4),137],[96+side*48,178+side*8]];
+      line(arm,7,'#121113');line(arm.map(([x,y])=>[x+2,y]),1,'#514446');
+      for(let f=0;f<3;f++)line([[96+side*48,178+side*8],[96+side*(49+f*3),195+side*8-f*2]],1,'#211c20');
+      const leg=[[96+side*13,143],[96+side*20+lean,194],[96+side*27,244],[96+side*39,248]];
+      line(leg,8,'#141215');line(leg.map(([x,y])=>[x-2,y]),1,'#5a4a4d');
+    }
+    shape([[85,62],[109,62],[114,87],[127,101],[117,137],[126,162],[106,157],[99,166],[78,158],[68,143],[77,112],[70,99],[83,85]],'#151315');
+    const heads=[
+      [[57,24],[111,12],[134,34],[104,83],[81,76]],
+      [[79,13],[103,9],[117,30],[115,73],[96,86],[73,65],[70,32]],
+      [[8,19],[181,14],[125,47],[105,82],[85,78],[68,45]],
+      [[61,36],[84,17],[120,21],[135,43],[107,91],[77,68]],
+      [[84,4],[103,9],[113,68],[99,88],[81,73]],
+      [[51,31],[72,13],[121,17],[138,38],[122,70],[86,81],[60,57]],
+      [[68,11],[111,20],[126,49],[111,84],[79,74],[61,39]],
+      [[39,20],[136,13],[150,34],[117,54],[105,89],[87,81],[70,48]]
+    ];
+    shape(heads[cell],cell===2?'#111113':['#6b3839','#88716b','#242025','#6d5550'][cell%4]);
+    if(cell===1)for(let n=0;n<28;n++){const side=n%2?-1:1;line([[96+side*21,18],[96+side*(24+rnd()*8),58],[96+side*(27+rnd()*12),106+rnd()*22]],.6,'#1a171b');}
+    for(const [x,y,w,h] of [[84,40,cell===2?3:5,cell===1?13:7],[105,39,cell===2?3:6,cell===1?14:8]]){
+      ctx.beginPath();ctx.ellipse(x,y,w+2,h+2,-.12,0,Math.PI*2);ctx.fillStyle=cell===2?'#b3aaa1':'#281c20';ctx.fill();
+      ctx.beginPath();ctx.ellipse(x+1,y,w,h,.15,0,Math.PI*2);ctx.fillStyle='#08080b';ctx.fill();
+      line([[x-w-2,y-h],[x-w-3,y+h+5]],.6,'#b29b8a');
+    }
+    if(cell!==2)shape([[83,56],[105,53],[109,61],[100,78],[94,83],[87,72]],'#0b090d');
+    for(let n=0;n<14;n++){const x=58+rnd()*78,y=17+rnd()*58;line([[x,y],[x+(x-96)*.55,y-8-rnd()*19]],.5,'rgba(87,67,68,.65)');}
+  }
   const profiles=[
     {hip:.53,stride:1.1,arms:.8,bob:1}, {hip:.59,stride:.9,arms:1.25,bob:.7},
     {hip:.52,stride:1,arms:1,bob:1}, {hip:.46,stride:1.35,arms:1.35,bob:.6},
@@ -59,8 +97,7 @@ const MonsterArt = (() => {
     let texture=textures.get(cell);
     if(!texture){
       texture=document.createElement('canvas');texture.width=tw;texture.height=th;
-      const tc=texture.getContext('2d'),cw=atlas.naturalWidth/4,ch=atlas.naturalHeight/2;
-      tc.imageSmoothingEnabled=true;tc.drawImage(atlas,cell%4*cw,Math.floor(cell/4)*ch,cw,ch,0,0,tw,th);textures.set(cell,texture);
+      const tc=texture.getContext('2d');inkDrawing(tc,cell);textures.set(cell,texture);
     }
     const out=document.createElement('canvas');out.width=tw+pad*2;out.height=th+pad*2;
     const oc=out.getContext('2d');oc.imageSmoothingEnabled=true;
@@ -107,5 +144,5 @@ const MonsterArt = (() => {
     });
     c.restore();
   }
-  return {draw,ready,pose,get cachedFrames(){return frames.size;},get loaded(){return loaded;}};
+  return {draw,ready,pose,get textureCount(){return textures.size;},get cachedFrames(){return frames.size;},get loaded(){return loaded;}};
 })();
