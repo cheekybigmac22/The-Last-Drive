@@ -373,9 +373,10 @@ const PixelArt = (() => {
         if(t>.3){P(-4,-20,3,3,cream);P(3,-20,3,3,cream);}c.restore();
       }});
       if(m.revealed)actors.push({y:m.y+50,draw:()=>{
-        const safe=m.revealProgress<1||m.revealGrace>0,color=safe?'#f3cb6e':'#ed786a';
+        const safe=m.revealProgress<1||m.revealGrace>0||m.entryWarning>0,color=m.exhausted?'#89b5c7':safe?'#f3cb6e':'#ed786a';
         for(let i=0;i<40;i++){const a=i/40*Math.PI*2;P(m.x+Math.cos(a)*44,m.y+Math.sin(a)*25+8,3,3,color);}
         if(safe){frame(m.x-30,m.y+40,60,8,ink,'#594452');P(m.x-28,m.y+42,56*m.revealProgress,4,color);label('RUN',m.x-12,m.y-48,color);}
+        if(m.exhausted)label('TIRED',m.x-20,m.y-48,color);
       }});
     }
     const wy=g.woman.y,wx=g.woman.x;

@@ -128,7 +128,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(source + `\n;globalThis.testGame = {
   get game() { return game; }, get keys() { return keys; }, get biomes() { return biomes; },
-  begin, reset, draw, update, useBoost, updateMainWoman, rewindWorld, pursue, spawnBoost, spawnMonster, spawnPedestrian, spawnTraffic, updateTraffic, encounter, startMemoryGame, chooseDoor,
+  begin, reset, draw, update, useBoost, updateMainWoman, rewindWorld, pursue, spawnBoost, spawnMonster, spawnRusher, monsterVisible, spawnPedestrian, spawnTraffic, updateTraffic, encounter, startMemoryGame, chooseDoor,
   RoadNetwork, World, MonsterArt, MiniGames, Emergence, transformationDuration, startChallenge, updateBoost,
   W, H
 };`, sandbox, { filename: 'game.js' });
@@ -351,6 +351,27 @@ test('synthesized horror sound waits for activation, caps voices, and respects m
   for(let i=0;i<20;i++)env.audio.cue('reveal');assert.equal(oscillators,7,'only six temporary voices may overlap');
   env.audio.toggle();pending.forEach(f=>f());env.audio.cue('death');assert.equal(oscillators,7);
   env.audio.update({running:false,memoryTimer:0,fear:1},.1);
+});
+test('rushers enter from all four edges and are not discarded before first sight',()=>{
+  for(const side of ['top','right','bottom','left']){
+    fresh();quiet();api.spawnRusher(side,false);const g=api.game,m=g.monsters[0];
+    assert(m&&m.entrySide===side&&m.revealed&&!m.disguised);assert.equal(api.monsterVisible(m),false);
+    const distance=Math.hypot(m.x-g.x,m.y-g.y);api.update(.02);
+    assert(g.monsters.includes(m),'offscreen entrant must be allowed to approach');assert(Math.hypot(m.x-g.x,m.y-g.y)<distance);
+  }
+});
+test('a seen monster ends its chase after leaving the camera, without reviving',()=>{
+  fresh();quiet();api.spawnMonster('chase');const g=api.game,m=g.monsters[0];
+  Object.assign(m,{x:320,y:-100,revealed:true,revealProgress:1,revealGrace:0});api.update(.02);assert(m.seen);
+  m.x=g.x+750;m.y=g.y;
+  for(let i=0;i<22;i++)api.update(.02);
+  assert(!g.monsters.includes(m));assert.equal(g.running,true);
+});
+test('faster-than-boost sprinters exhaust their limited stamina and stop',()=>{
+  fresh();quiet();const g=api.game;g.free=true;g.woman.y=2000;api.spawnRusher('top',true);const m=g.monsters[0];
+  Object.assign(m,{x:320,y:-330,entryWarning:0,seen:true});assert(m.speed*.82>380);
+  api.keys.s=true;api.keys[' ']=true;advance(1.8);assert(g.running);assert(m.exhausted);assert.equal(m.moving,false);
+  const x=m.x,y=m.y;advance(.3);assert.equal(m.x,x);assert.equal(m.y,y);
 });
 test('time loops restore the exact decorated location without reversing the ten-minute clock',()=>{
   fresh();quiet();const g=api.game;api.keys.w=true;advance(8);const target=g.history[Math.max(0,g.history.length-28)];

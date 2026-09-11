@@ -97,7 +97,7 @@ const MonsterArt = (() => {
     const shake=g.shake&&g.running?Math.round(Math.sin(g.time*51)*g.shake*4)*2:0;
     c.save();c.translate(shake-g.cameraX,0);
     const actors=[];
-    for(const m of g.monsters)if(m.life>0&&m.revealed){const emergence=Emergence.pose(m.id,m.revealProgress);actors.push({x:m.x,y:m.y,id:m.id,age:m.age,alpha:emergence.alpha,moving:m.moving,phase:m.phase,emergence});}
+    for(const m of g.monsters)if(m.life>0&&m.revealed){const emergence=Emergence.pose(m.id,m.revealProgress);if(m.exhausted){emergence.sy=.72;emergence.angle=.12;emergence.alpha=.65;}actors.push({x:m.x,y:m.y,id:m.id,age:m.age,alpha:emergence.alpha,moving:m.moving,phase:m.phase,emergence});}
     if(g.mainWoman>0)actors.push({x:g.woman.x,y:g.woman.y,id:1,age:g.time,alpha:g.mainWoman,moving:g.woman.moving,phase:g.woman.phase});
     actors.sort((a,b)=>a.y-b.y).forEach(m=>{
       c.save();

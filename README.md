@@ -27,6 +27,10 @@ The world is now nighttime, with a direction-following pixel headlight and local
 
 Normal riding speed is 220; revealed monsters have base speeds of 275–295 and remain faster than normal riding throughout their stride. Her sprint speed is 315; even its fastest stride remains below a full boost's 380. Ordinary chases tire after eight seconds if you maintain enough separation. Keep a reserve for escaping, rather than holding boost constantly.
 
+About one-quarter of rare encounter slots are off-screen rushers, approaching from the top, bottom, left or right. A directional message and sound warn you; their first 1.2 seconds are a slower, harmless approach. Once an ordinary monster has been visible, keeping its entire sprite outside the camera for 0.35 seconds ends that chase. Initial off-screen approach is not mistaken for an escape. The persistent following woman retains her separate off-screen pursuit rules.
+
+Some rushers are Breathless sprinters: their 490 base speed beats even boost, but they can sustain it for only 1.6 seconds after the approach warning. Dodge or boost away to survive that burst. They then slump, stop permanently, turn harmless, and show a blue TIRED marker before fading away. These attacks retain the one-monster limit and do not overlap the woman's sprint.
+
 Fuel pickups add 35% but now arrive only every 30–38 seconds of movement, with at most two nearby. Sprint warnings never generate a rescue pickup. Challenge rewards remain available. The design provides tested escape windows on clear routes with saved fuel; poor steering, missed pickups or wasting fuel can still end a run.
 
 Audio starts only after clicking START DRIVE. Synthesized wind, low drones, approaching footsteps, heartbeat pulses, warning growls and encounter/death stingers build with danger. SOUND ON/OFF mutes them. Default output is kept moderate, and temporary voices are capped. No external audio downloads are required.

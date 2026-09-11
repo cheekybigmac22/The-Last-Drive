@@ -103,7 +103,27 @@ function spawnMonster(forceKind=null){
   const hidden=forceKind==='disguise'||Math.random()<.94;
   game.monsters.push({...position,id,name:monsterTypes[id],kind,disguised:hidden,revealed:!hidden,revealProgress:hidden?0:1,revealGrace:hidden?.7:0,transformDuration:transformationDuration(),age:0,phase:0,life:1,chaseAge:0,speed:rand(275,295),path:[],repath:0,moving:false});
 }
-function encounter(){spawnMonster();}
+function monsterVisible(m){
+  // Include the full tall sprite, not only its feet. Darkness does not count
+  // as losing sight; escaping means getting the creature outside the camera.
+  return m.x+90>game.x-W/2&&m.x-90<game.x+W/2&&m.y+30>game.y-H/2&&m.y-190<game.y+H/2;
+}
+function spawnRusher(side=pick(['top','right','bottom','left']),fast=Math.random()<.3){
+  if(game.monsters.length||game.forcedTimer>0||game.sprintWarning>0)return;
+  const direction={top:[0,-1],right:[1,0],bottom:[0,1],left:[-1,0]}[side];
+  let position;
+  for(let i=0;i<5;i++){
+    const distance=(direction[0]?510:680)+i*176;
+    position=World.openPoint(game.x+direction[0]*distance,game.y+direction[1]*distance,10);
+    if(!monsterVisible(position))break;
+  }
+  const id=Math.floor(rand(0,40));
+  game.monsters.push({...position,id,name:fast?'The Breathless':monsterTypes[id],kind:'rusher',disguised:false,revealed:true,revealProgress:1,revealGrace:0,
+    age:0,phase:0,life:1,chaseAge:0,speed:fast?490:285,path:[],repath:0,moving:true,seen:false,outOfSight:0,entrySide:side,entryWarning:1.2,
+    sprinter:fast,sprintLeft:1.6,exhausted:false,restAge:0});
+  HorrorAudio.cue('warning');showEvent((fast?'A SPRINTER':'RUNNING FOOTSTEPS')+' FROM THE '+side.toUpperCase()+' — MOVE AWAY',2.2);
+}
+function encounter(){if(Math.random()<.25)spawnRusher();else spawnMonster();}
 function startMemoryGame(){
   if(!game.running||game.memoryTimer!==0||game.forcedTimer>0||MiniGames.active)return;
   const digits=Math.min(7,2+Math.floor(game.time/90));
@@ -224,6 +244,11 @@ function update(dt){
   for(const m of game.monsters){
     if(m.life<=0)continue;m.age+=dt;
     const gap=Math.hypot(m.x-game.x,m.y-game.y);
+    const visible=monsterVisible(m);
+    if(visible){m.seen=true;m.outOfSight=0;}
+    else if(m.seen){m.outOfSight=(m.outOfSight||0)+dt;if(m.outOfSight>.35){m.life=0;showEvent('OUT OF SIGHT — CHASE ENDED',1.2);continue;}}
+    if(m.entrySide&&!m.seen&&m.age>8){m.life=0;continue;}
+    if(m.exhausted){m.moving=false;m.restAge+=dt;if(m.restAge>6)m.life=0;continue;}
     if(!m.revealed){
       World.move(m,Math.sin(m.id)*12*dt,Math.cos(m.id)*12*dt,8);m.phase+=dt*4;
       if(gap<220&&game.forcedTimer===0&&game.sprintWarning===0){m.revealed=true;m.revealProgress=0;m.revealGrace=.7;m.transformDuration=transformationDuration();HorrorAudio.cue('reveal');game.red=.12;showEvent('SOMETHING IS WRONG — MOVE AWAY FROM THE AMBER RING',m.transformDuration+.7);}
@@ -232,15 +257,20 @@ function update(dt){
       if(m.revealProgress<1){m.moving=false;m.revealProgress=Math.min(1,m.revealProgress+dt/(m.transformDuration||2.8));continue;}
       if(m.revealGrace>0){m.moving=false;m.revealGrace=Math.max(0,m.revealGrace-dt);continue;}
       if(game.resumeGrace>0){m.moving=false;continue;}
+      if(m.entryWarning>0){m.entryWarning=Math.max(0,m.entryWarning-dt);pursue(m,dt,180);continue;}
       if(m.kind==='loop'&&game.loopCooldown===0&&rewindWorld())break;
+      if(m.sprinter){
+        m.sprintLeft=Math.max(0,m.sprintLeft-dt);
+        if(m.sprintLeft===0){m.exhausted=true;m.moving=false;m.path=[];m.restAge=0;showEvent('IT IS EXHAUSTED — GET AWAY',1.8);continue;}
+      }
       m.chaseAge=(m.chaseAge||0)+dt;
-      if(m.chaseAge>8&&gap>80){m.life=0;showEvent('IT LOST YOUR SCENT',1.4);continue;}
+      if(!m.entrySide&&m.chaseAge>8&&gap>80){m.life=0;showEvent('IT LOST YOUR SCENT',1.4);continue;}
       pursue(m,dt,m.speed);
       if(Math.hypot(m.x-game.x,m.y-game.y)<25){endRun('CAUGHT BY '+m.name.toUpperCase());return;}
     }
   }
   game.monsters=game.monsters.filter(m=>m.life>0&&Math.hypot(m.x-game.x,m.y-game.y)<1000&&m.age<55);
-  const active=game.monsters.filter(m=>m.revealed&&m.revealProgress>=1&&m.revealGrace<=0);
+  const active=game.monsters.filter(m=>m.life>0&&!m.exhausted&&m.revealed&&m.revealProgress>=1&&m.revealGrace<=0);
   const closest=Math.min(Math.hypot(game.woman.x-game.x,game.woman.y-game.y),...active.map(m=>Math.hypot(m.x-game.x,m.y-game.y)));
   game.fear=Math.max(game.sprintWarning>0?.8:0,clamp(1-closest/460,0,1));
   game.historyTimer-=dt;if(game.historyTimer<=0){game.history.push({x:game.x,y:game.y,heading:game.heading,free:game.free});if(game.history.length>48)game.history.shift();game.historyTimer=.25;}
