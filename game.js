@@ -32,7 +32,7 @@ function reset(){
     memoryTimer:0,nextMemory:35,memory:null,monsters:[],pickups:[],traffic:[],pedestrians:[],particles:[],
     shake:0,red:0,biome:0,loopCount:0,loopCooldown:0,history:[],historyTimer:0};
   memory.classList.add('hidden');memoryPhase.classList.remove('hidden');doors.classList.add('hidden');death.classList.add('hidden');eventEl.textContent='';
-  for(let i=0;i<24;i++)spawnPedestrian(true);
+  for(let i=0;i<8;i++)spawnPedestrian(true);
   for(let i=0;i<4;i++)spawnTraffic();
   spawnBoost();updateHUD();draw();
 }
@@ -63,7 +63,7 @@ function updateTraffic(dt){
   game.traffic=game.traffic.filter(v=>Math.hypot(v.x-game.x,v.y-game.y)<1100);
 }
 function spawnPedestrian(initial=false){
-  if(game.pedestrians.length>=36)return;
+  if(game.pedestrians.length>=12)return;
   const p=initial?{x:game.x+rand(-400,400),y:game.y+rand(-450,450)}:forwardPoint(rand(300,550),350);
   if(!World.highway(p.x,p.y)){
     const position=World.openPoint(p.x,p.y,8),angle=rand(0,Math.PI*2);
@@ -96,11 +96,12 @@ function startChallenge(){
   for(const key of Object.keys(keys))delete keys[key];game.burst=0;
   MiniGames.start(type===1?'sequence':'timing',Math.min(8,Math.floor(game.time/100)),finishChallenge);
 }
+function transformationDuration(){return 2.8/(1.5+.5*clamp(game.time/600,0,1));}
 function spawnMonster(forceKind=null){
   if(game.monsters.length>=3)return;
   const id=Math.floor(rand(0,40)),position=forwardPoint(rand(230,430),180),kind=forceKind||(id%9===0?'loop':'chase');
   const hidden=forceKind==='disguise'||Math.random()<.94;
-  game.monsters.push({...position,id,name:monsterTypes[id],kind,disguised:hidden,revealed:!hidden,revealProgress:hidden?0:1,revealGrace:hidden?.7:0,transformDuration:2.8,age:0,phase:0,life:1,speed:rand(85,130),path:[],repath:0,moving:false});
+  game.monsters.push({...position,id,name:monsterTypes[id],kind,disguised:hidden,revealed:!hidden,revealProgress:hidden?0:1,revealGrace:hidden?.7:0,transformDuration:transformationDuration(),age:0,phase:0,life:1,speed:rand(85,130),path:[],repath:0,moving:false});
 }
 function encounter(){spawnMonster();}
 function startMemoryGame(){
@@ -178,7 +179,7 @@ function rewindWorld(){
   const p=World.openPoint(game.x-Math.sin(game.heading)*285,game.y+Math.cos(game.heading)*285);
   Object.assign(game.woman,p,{path:[],repath:0});game.monsters=[];game.pickups=[];game.pedestrians=[];game.traffic=[];
   game.history=[];game.loopCount++;game.loopCooldown=35;game.red=.8;game.shake=.35;
-  spawnBoost();for(let i=0;i<20;i++)spawnPedestrian(true);
+  spawnBoost();for(let i=0;i<7;i++)spawnPedestrian(true);
   showEvent('TIME LOOP — THE SAME LANDMARKS. AGAIN.',3);return true;
 }
 function update(dt){
@@ -203,7 +204,7 @@ function update(dt){
   updateTraffic(dt);
   for(const p of game.pedestrians){const ox=p.x,oy=p.y;World.move(p,p.vx*dt,p.vy*dt,7);if(Math.hypot(p.x-ox,p.y-oy)<dt*3){p.vx*=-1;p.vy*=-1;}p.phase+=dt*4;}
   game.pedestrians=game.pedestrians.filter(p=>Math.hypot(p.x-game.x,p.y-game.y)<850);
-  game.pedestrianTimer-=dt;if(game.pedestrianTimer<=0){spawnPedestrian();spawnPedestrian();game.pedestrianTimer=.7;}
+  game.pedestrianTimer-=dt;if(game.pedestrianTimer<=0){spawnPedestrian();game.pedestrianTimer=1.05;}
   game.monsterTimer-=dt;if(game.monsterTimer<=0){encounter();game.monsterTimer=rand(16,24);}
   game.loopCooldown=Math.max(0,game.loopCooldown-dt);
   for(const m of game.monsters){
@@ -211,7 +212,7 @@ function update(dt){
     const gap=Math.hypot(m.x-game.x,m.y-game.y);
     if(!m.revealed){
       World.move(m,Math.sin(m.id)*12*dt,Math.cos(m.id)*12*dt,8);m.phase+=dt*4;
-      if(gap<220){m.revealed=true;m.revealProgress=0;m.revealGrace=.7;m.transformDuration=2.8;game.red=.12;showEvent('SOMETHING IS WRONG — MOVE AWAY FROM THE AMBER RING',2.8);}
+      if(gap<220){m.revealed=true;m.revealProgress=0;m.revealGrace=.7;m.transformDuration=transformationDuration();game.red=.12;showEvent('SOMETHING IS WRONG — MOVE AWAY FROM THE AMBER RING',m.transformDuration+.7);}
     }
     if(m.revealed){
       if(m.revealProgress<1){m.moving=false;m.revealProgress=Math.min(1,m.revealProgress+dt/(m.transformDuration||2.8));continue;}

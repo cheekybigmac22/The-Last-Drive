@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const repo = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(repo, 'style.css'), 'utf8');
-const source = ['roads.js','world.js','pixel-art.js','monster-art.js','minigames.js','game.js'].map(file=>fs.readFileSync(path.join(repo,file),'utf8')).join('\n');
+const source = ['roads.js','world.js','pixel-art.js','emergence.js','monster-art.js','minigames.js','game.js'].map(file=>fs.readFileSync(path.join(repo,file),'utf8')).join('\n');
 let random = () => 0.999999;
 let sequence = 1;
 const timers = new Map();
@@ -129,7 +129,7 @@ vm.createContext(sandbox);
 vm.runInContext(source + `\n;globalThis.testGame = {
   get game() { return game; }, get keys() { return keys; }, get biomes() { return biomes; },
   begin, reset, draw, update, useBoost, updateMainWoman, rewindWorld, pursue, spawnBoost, spawnMonster, spawnPedestrian, spawnTraffic, updateTraffic, encounter, startMemoryGame, chooseDoor,
-  RoadNetwork, World, MonsterArt, MiniGames, startChallenge, updateBoost,
+  RoadNetwork, World, MonsterArt, MiniGames, Emergence, transformationDuration, startChallenge, updateBoost,
   W, H
 };`, sandbox, { filename: 'game.js' });
 const api = sandbox.testGame;
@@ -280,10 +280,30 @@ test('held boost drains proportionally, stops on release and displays remaining 
 test('human transformations are animated but harmless for the full warning and grace period',()=>{
   fresh();quiet();const g=api.game;g.woman.x=320;g.woman.y=900;
   api.spawnMonster('disguise');const m=g.monsters[0];Object.assign(m,{x:g.x,y:g.y,kind:'chase'});
-  for(let i=0;i<160;i++){g.woman.y=900;api.update(.02);assert(g.running,'warning contact must not kill');}
+  for(let i=0;i<Math.floor((api.transformationDuration()+.4)/.02);i++){g.woman.y=900;api.update(.02);assert(g.running,'warning contact must not kill');}
   assert(m.revealProgress===1&&m.revealGrace>0);assert.equal(m.moving,false);
   for(let i=0;i<40&&g.running;i++){g.woman.y=900;api.update(.02);}
   assert.equal(g.running,false,'fully armed monsters must remain lethal');
+});
+test('forty emergence identities have distinct poses, settle cleanly, and speed up with time',()=>{
+  fresh();quiet();const signatures=new Set();
+  for(let id=0;id<40;id++){
+    const poses=[.2,.5,.8].map(t=>api.Emergence.pose(id,t));
+    signatures.add(JSON.stringify(poses.map(({name,...p})=>p)));
+    const p=api.Emergence.pose(id,1);assert.equal(p.x,0);assert.equal(p.y,0);assert.equal(p.sx,1);assert.equal(p.sy,1);assert.equal(p.angle,0);
+    api.game.monsters=[];api.spawnMonster('disguise');Object.assign(api.game.monsters[0],{id,revealed:true,revealProgress:.5});api.draw();
+  }
+  assert.equal(signatures.size,40);
+  api.game.time=0;assert(Math.abs(api.transformationDuration()-2.8/1.5)<1e-8);
+  api.game.time=300;const middle=api.transformationDuration();assert(middle<2.8/1.5&&middle>1.4);
+  api.game.time=900;assert.equal(api.transformationDuration(),1.4);
+});
+test('population is sparse and surviving buildings have persistent landmark labels',()=>{
+  fresh();assert.equal(api.game.pedestrians.length,8);
+  for(let i=0;i<30;i++)api.spawnPedestrian(true);assert.equal(api.game.pedestrians.length,12);
+  const props=api.World.props(-12000,-12000,12000,-5000),buildings=props.filter(p=>p.landmark);
+  assert(buildings.length>0&&buildings.length<props.length*.3);
+  for(const p of buildings.slice(0,30))assert.equal(api.World.props(p.x,p.y,p.x,p.y).find(q=>q.id===p.id).seed,p.seed);
 });
 test('new challenges pause pursuit and fuel, scale difficulty, and safely reward or fail',()=>{
   fresh();quiet();let g=api.game;g.challengeIndex=1;g.time=0;g.boost=.2;api.startChallenge();
@@ -316,7 +336,7 @@ test('extended simulation bounds actors, scenery cache, and rewind history',()=>
     if(g.boost&&Math.hypot(g.woman.x-g.x,g.woman.y-g.y)<180)api.keys[' ']=true;
     if(api.MiniGames.active){const s=api.MiniGames.state;if(s.kind==='sequence'&&s.stage==='input')api.MiniGames.input(s.sequence[s.index]);else if(s.kind==='timing'&&s.position>s.left&&s.position<s.left+s.width)api.MiniGames.input('stop');}
     api.update(.04);
-    assert(g.monsters.length<=3&&g.pickups.length<=8&&g.pedestrians.length<=36&&g.traffic.length<=8&&g.history.length<=48);
+    assert(g.monsters.length<=3&&g.pickups.length<=8&&g.pedestrians.length<=12&&g.traffic.length<=8&&g.history.length<=48);
     assert(!api.World.blocked(g.x,g.y,13));assert(api.World.cacheSize<=3000);
     if(frame%1000===0)api.draw();
   }

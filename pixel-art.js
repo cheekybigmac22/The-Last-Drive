@@ -334,7 +334,7 @@ const PixelArt = (() => {
       frame(x-25,y-35,50,67,ink,p.roof);P(x-14,y-43,14,55,p.curb);P(x+12,y-18,12,40,p.speck);line(x-4,y-30,x+6,y+8,ink,4);
     }
     // Permanent, coordinate-derived landmark plates help identify a repeated place.
-    if(seed%5===0){frame(x-16,y+o.ry+4,34,14,ink,p.curb);label(String(seed%100).padStart(2,'0'),x-10,y+o.ry+6,ink);}
+    if(o.landmark||seed%5===0){frame(x-21,y+o.ry+4,44,14,ink,p.curb);label(String(seed%1000).padStart(3,'0'),x-16,y+o.ry+6,ink);}
   }
   function scenery(g,W,H){
     return World.props(g.cameraX-100,-g.scroll-150,g.cameraX+W+100,H-g.scroll+100)
@@ -353,8 +353,11 @@ const PixelArt = (() => {
     for(const m of g.monsters){
       if(!m.revealed||m.revealProgress<1)actors.push({y:m.y+24,draw:()=>{
         const t=m.revealed?m.revealProgress:0;
-        c.save();c.globalAlpha=1-t*.9;c.translate(m.x,m.y);c.rotate(Math.sin(m.age*23)*t*.065);c.scale(1-t*.2,1+t*.65);
-        person(0,0,m.id,m.revealed?Math.sin(m.age*16)*t:m.age*5);
+        const emergence=Emergence.pose(m.id,t);
+        c.save();c.globalAlpha=1-t*.9;c.translate(m.x,m.y);c.rotate(emergence.humanAngle);c.scale(emergence.humanSx,emergence.humanSy);
+        if(emergence.split>0){
+          for(const side of [-1,1]){c.save();c.beginPath();c.rect(side<0?-60:0,-100,60,200);c.clip();person(side*emergence.split,0,m.id,Math.sin(m.age*12)*t);c.restore();}
+        }else person(0,0,m.id,m.revealed?Math.sin(m.age*16)*t:m.age*5);
         if(t>.3){P(-4,-20,3,3,cream);P(3,-20,3,3,cream);}c.restore();
       }});
       if(m.revealed)actors.push({y:m.y+50,draw:()=>{
@@ -369,6 +372,19 @@ const PixelArt = (() => {
     actors.push({y:H/2+24,draw:()=>{c.save();c.translate(g.x,H/2);c.rotate(g.heading);bike(0,0,0,g.moving?g.burst:0,g.time);c.restore();}});
     actors.sort((a,b)=>a.y-b.y).forEach(a=>a.draw());
     for(const part of g.particles)P(part.x,part.y,2,4,part.kind==='boost'?'#edc96f':'#749096');
+    c.restore();
+    // Darkness is drawn on the pixel grid. The motorcycle headlight points in
+    // the riding direction, while warning rings remain locally readable.
+    c.save();
+    const fx=Math.sin(g.heading),fy=-Math.cos(g.heading);
+    const glows=[...g.monsters.filter(m=>m.revealed&&(m.revealProgress<1||m.revealGrace>0)),...g.pickups];
+    for(let y=0;y<H;y+=12)for(let x=0;x<W;x+=12){
+      const dx=x+6-W/2,dy=y+6-H/2,d=Math.hypot(dx,dy),along=dx*fx+dy*fy,across=Math.abs(dx*fy-dy*fx);
+      let light=Math.max(0,1-d/125)*.28;
+      if(along>0&&along<360&&across<28+along*.32)light=Math.max(light,.49*(1-along/480)*(1-across/(36+along*.42)));
+      for(const m of glows){const distance=Math.hypot(x+6-(m.x-g.cameraX),y+6-m.y);light=Math.max(light,Math.max(0,1-distance/90)*.35);}
+      P(x,y,12,12,'rgba(5,9,27,'+Math.max(.15,.66-light)+')');
+    }
     c.restore();
     target.setTransform(1,0,0,1,0,0);target.imageSmoothingEnabled=false;
     target.fillStyle=ink;target.fillRect(0,0,W,H);

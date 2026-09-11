@@ -36,7 +36,8 @@ const World=(()=>{
       const size={house:[42,48],barn:[45,42],cabin:[42,44],pyramid:[53,46],dune:[40,22],temple:[46,40],pond:[42,25],fountain:[26,22],hay:[22,18],ice:[26,25],lighthouse:[27,35],boat:[34,18],ruin:[27,30],crystal:[24,25],tree:[20,20],pine:[20,22],palm:[14,18],cactus:[14,22],rock:[24,19]}[kind];
       // Clear the sole highway. Elsewhere, spacing leaves rideable natural gaps
       // between even the largest landmarks, without invisible road corridors.
-      if(edge>Math.max(...size)+25)value={id:key,x,y,biome:b,kind,rx:size[0],ry:size[1],seed:Math.floor(hash(col,row,7)*10000)};
+      const structure=['house','barn','cabin','pyramid','temple','lighthouse','ruin','fountain'].includes(kind);
+      if(edge>Math.max(...size)+25&&(!structure||hash(col,row,12)<.24))value={id:key,x,y,biome:b,kind,rx:size[0],ry:size[1],seed:Math.floor(hash(col,row,7)*10000),landmark:structure};
     }
     cache.set(key,value);if(cache.size>3000)cache.delete(cache.keys().next().value);return value;
   }

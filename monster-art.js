@@ -97,9 +97,14 @@ const MonsterArt = (() => {
     const shake=g.shake&&g.running?Math.round(Math.sin(g.time*51)*g.shake*4)*2:0;
     c.save();c.translate(shake-g.cameraX,0);
     const actors=[];
-    for(const m of g.monsters)if(m.life>0&&m.revealed)actors.push({x:m.x,y:m.y,id:m.id,age:m.age,alpha:m.revealProgress*m.revealProgress,moving:m.moving,phase:m.phase});
+    for(const m of g.monsters)if(m.life>0&&m.revealed){const emergence=Emergence.pose(m.id,m.revealProgress);actors.push({x:m.x,y:m.y,id:m.id,age:m.age,alpha:emergence.alpha,moving:m.moving,phase:m.phase,emergence});}
     if(g.mainWoman>0)actors.push({x:g.woman.x,y:g.woman.y,id:1,age:g.time,alpha:g.mainWoman,moving:g.woman.moving,phase:g.woman.phase});
-    actors.sort((a,b)=>a.y-b.y).forEach(m=>creature(m.x,m.y,m.id,m.age,m.alpha,m.moving,m.phase));
+    actors.sort((a,b)=>a.y-b.y).forEach(m=>{
+      c.save();
+      if(m.emergence){const p=m.emergence;c.translate(m.x+p.x,m.y+p.y);c.rotate(p.angle);c.scale(p.sx,p.sy);creature(0,0,m.id,m.age,m.alpha,m.moving,m.phase);}
+      else creature(m.x,m.y,m.id,m.age,m.alpha,m.moving,m.phase);
+      c.restore();
+    });
     c.restore();
   }
   return {draw,ready,pose,get cachedFrames(){return frames.size;},get loaded(){return loaded;}};
