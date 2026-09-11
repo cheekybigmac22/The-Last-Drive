@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const repo = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(repo, 'style.css'), 'utf8');
-const source = ['roads.js','world.js','pixel-art.js','emergence.js','monster-art.js','minigames.js','game.js'].map(file=>fs.readFileSync(path.join(repo,file),'utf8')).join('\n');
+const source = ['roads.js','world.js','pixel-art.js','emergence.js','monster-art.js','minigames.js','horror-audio.js','game.js'].map(file=>fs.readFileSync(path.join(repo,file),'utf8')).join('\n');
 let random = () => 0.999999;
 let sequence = 1;
 const timers = new Map();
@@ -238,8 +238,8 @@ test('landmarks are deterministic, solid, varied, and swept movement cannot tunn
   const p=props.find(p=>api.World.clear(p.x-p.rx-100,p.y,p.x-p.rx-14,p.y,13));
   const actor={x:p.x-p.rx-100,y:p.y};api.World.move(actor,400,0,13);assert(actor.x<=p.x-p.rx-13+1e-6);assert(!api.World.blocked(actor.x,actor.y,13));
 });
-test('woman starts far away on screen, directly intercepts, and catches an idle rider',()=>{
-  fresh();quiet();let g=api.game;assert.equal(g.woman.y-g.cameraY,710);assert.equal(g.mainWoman,0);
+test('woman starts off screen, directly intercepts, and catches an idle rider',()=>{
+  fresh();quiet();let g=api.game;assert.equal(g.woman.y-g.cameraY,1060);assert.equal(g.mainWoman,0);
   const ox=g.woman.x,oy=g.woman.y;api.update(.04);assert(g.woman.y<oy);assert.equal(g.woman.x,ox);
   advance(5);assert.equal(g.running,false);assert.equal(elements.get('#death-title').textContent,'SHE CAUGHT YOU');
   fresh();quiet();g=api.game;g.woman.x=450;g.woman.y=240;api.updateMainWoman(.04);assert(g.woman.x<450&&g.woman.y<240,'pursuit must cut toward current position');
@@ -257,7 +257,7 @@ test('pursuer navigates around a solid landmark rather than passing through it',
 });
 test('woman transformation takes ten active minutes and pauses for memory doors',()=>{
   fresh();quiet();const g=api.game;
-  for(const [time,expected] of [[0,0],[150,.25],[300,.5],[599,599/600],[600,1],[1200,1]]){g.time=time;api.updateMainWoman(0);assert.equal(g.mainWoman,expected);}
+  for(const [time,expected] of [[0,0],[150,0],[300,0],[599,.45],[600,1],[1200,1]]){g.time=time;api.updateMainWoman(0);assert.equal(g.mainWoman,expected);}
   g.time=300;api.startMemoryGame();const time=g.time,y=g.woman.y;advance(3);assert.equal(g.memoryTimer,-1);assert.equal(g.time,time);assert.equal(g.woman.y,y);assert.equal(elements.get('#memory-number').textContent,'');
   api.chooseDoor(g.memory.answer);assert.equal(g.memoryTimer,0);assert.equal(g.boost,1);
 });
@@ -299,8 +299,8 @@ test('forty emergence identities have distinct poses, settle cleanly, and speed 
   api.game.time=900;assert.equal(api.transformationDuration(),1.4);
 });
 test('population is sparse and surviving buildings have persistent landmark labels',()=>{
-  fresh();assert.equal(api.game.pedestrians.length,8);
-  for(let i=0;i<30;i++)api.spawnPedestrian(true);assert.equal(api.game.pedestrians.length,12);
+  fresh();assert.equal(api.game.pedestrians.length,4);
+  for(let i=0;i<30;i++)api.spawnPedestrian(true);assert.equal(api.game.pedestrians.length,6);
   const props=api.World.props(-12000,-12000,12000,-5000),buildings=props.filter(p=>p.landmark);
   assert(buildings.length>0&&buildings.length<props.length*.3);
   for(const p of buildings.slice(0,30))assert.equal(api.World.props(p.x,p.y,p.x,p.y).find(q=>q.id===p.id).seed,p.seed);
@@ -316,6 +316,41 @@ test('new challenges pause pursuit and fuel, scale difficulty, and safely reward
   g.challengeIndex=2;g.time=0;api.startChallenge();const easy=api.MiniGames.state,wide=easy.width;easy.position=easy.left+easy.width/2;api.MiniGames.input('stop');assert(!api.MiniGames.active);
   g.challengeIndex=2;g.time=800;api.startChallenge();const difficult=api.MiniGames.state;assert(difficult.width<wide&&difficult.required>1);
   difficult.position=0;api.MiniGames.input('stop');assert(!api.MiniGames.active);assert(g.running);
+});
+test('monster speed stays above riding and below boost across the whole stride',()=>{
+  fresh();quiet();for(let i=0;i<40;i++){api.game.monsters=[];api.spawnMonster('chase');const m=api.game.monsters[0];assert(m.speed*.82>220);assert(m.speed*1.18<380);}
+  assert(315*.82>220&&315*1.18<380);
+});
+test('sprint attacks are warned, give no free fuel, and saved boost permits escape',()=>{
+  function run(boost){
+    fresh();quiet();const g=api.game;g.pickups=[];g.pickupTimer=1e6;g.woman.y=520;g.sprintWarning=2.5;g.monsters=[];api.keys.w=true;
+    let warned=false;
+    for(let i=0;i<600&&g.running;i++){if(g.sprintWarning>0){assert.equal(g.forcedTimer,0);warned=true;}
+      if(boost&&g.forcedTimer>0&&Math.hypot(g.x-g.woman.x,g.y-g.woman.y)<170)api.keys[' ']=true;else delete api.keys[' '];
+      api.update(.02);if(warned&&g.sprintWarning===0&&g.forcedTimer===0)break;
+    }
+    assert(warned);assert.equal(g.pickups.length,0);return g.running;
+  }
+  assert.equal(run(false),false,'normal riding alone should lose the sprint');
+  assert.equal(run(true),true,'a saved tank must provide a viable escape on a clear route');
+});
+test('no homes generate and corrupted areas have ominous landmarks',()=>{
+  const kinds=new Set();
+  for(let x=-120000;x<=120000;x+=20000)for(let y=-120000;y<=0;y+=20000)for(const p of api.World.props(x,y,x+1000,y+1000)){
+    assert(!['house','barn','cabin'].includes(p.kind));kinds.add(p.kind);
+  }
+  assert(kinds.has('watcher')&&kinds.has('gate')&&kinds.has('obelisk'));
+});
+test('synthesized horror sound waits for activation, caps voices, and respects mute',()=>{
+  let oscillators=0;const pending=[];
+  const parameter=()=>({value:0,setValueAtTime(v){assert(Number.isFinite(v));},exponentialRampToValueAtTime(v){assert(v>0);},setTargetAtTime(v){assert(Number.isFinite(v));}});
+  const node=()=>({gain:parameter(),frequency:parameter(),connect(){},disconnect(){},start(){},stop(){pending.push(()=>this.onended?.());}});
+  class AudioMock{constructor(){this.state='running';this.sampleRate=8000;this.currentTime=0;this.destination={};}resume(){return Promise.resolve();}createGain(){return node();}createOscillator(){oscillators++;return node();}createBiquadFilter(){return node();}createBuffer(ch,len){return {getChannelData:()=>new Float32Array(len)};}createBufferSource(){return node();}}
+  const env={AudioContext:AudioMock,Math,MiniGames:{active:false}};vm.createContext(env);vm.runInContext(fs.readFileSync(path.join(repo,'horror-audio.js'),'utf8')+';globalThis.audio=HorrorAudio;',env);
+  env.audio.cue('warning');assert.equal(oscillators,0);env.audio.init();assert.equal(oscillators,1);
+  for(let i=0;i<20;i++)env.audio.cue('reveal');assert.equal(oscillators,7,'only six temporary voices may overlap');
+  env.audio.toggle();pending.forEach(f=>f());env.audio.cue('death');assert.equal(oscillators,7);
+  env.audio.update({running:false,memoryTimer:0,fear:1},.1);
 });
 test('time loops restore the exact decorated location without reversing the ten-minute clock',()=>{
   fresh();quiet();const g=api.game;api.keys.w=true;advance(8);const target=g.history[Math.max(0,g.history.length-28)];
@@ -336,7 +371,7 @@ test('extended simulation bounds actors, scenery cache, and rewind history',()=>
     if(g.boost&&Math.hypot(g.woman.x-g.x,g.woman.y-g.y)<180)api.keys[' ']=true;
     if(api.MiniGames.active){const s=api.MiniGames.state;if(s.kind==='sequence'&&s.stage==='input')api.MiniGames.input(s.sequence[s.index]);else if(s.kind==='timing'&&s.position>s.left&&s.position<s.left+s.width)api.MiniGames.input('stop');}
     api.update(.04);
-    assert(g.monsters.length<=3&&g.pickups.length<=8&&g.pedestrians.length<=12&&g.traffic.length<=8&&g.history.length<=48);
+    assert(g.monsters.length<=1&&g.pickups.length<=2&&g.pedestrians.length<=6&&g.traffic.length<=8&&g.history.length<=48);
     assert(!api.World.blocked(g.x,g.y,13));assert(api.World.cacheSize<=3000);
     if(frame%1000===0)api.draw();
   }

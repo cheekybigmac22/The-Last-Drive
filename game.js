@@ -26,13 +26,13 @@ function showEvent(text,seconds=1.8){eventEl.textContent=text;clearTimeout(event
 function reset(){
   MiniGames.reset();clearTimeout(eventTimeout);for(const key of Object.keys(keys))delete keys[key];
   game={running:false,time:0,d:0,x:320,y:0,cameraX:0,cameraY:-H/2,scroll:H/2,heading:0,lean:0,moving:false,free:false,
-    boost:1,burst:0,boostHeldTime:0,resumeGrace:0,challengeIndex:0,setback:0,mainWoman:0,mainRush:0,forcedTimer:0,rushTimer:45,
-    woman:{x:320,y:300,path:[],repath:0,phase:0,moving:false},
-    monsterTimer:14,pickupTimer:2,trafficTimer:2,pedestrianTimer:1,
+    boost:1,burst:0,boostHeldTime:0,resumeGrace:0,challengeIndex:0,setback:0,mainWoman:0,womanStage:0,fear:0,sprintWarning:0,mainRush:0,forcedTimer:0,rushTimer:50,
+    woman:{x:320,y:650,path:[],repath:0,phase:0,moving:false},
+    monsterTimer:32,pickupTimer:30,trafficTimer:2,pedestrianTimer:1,
     memoryTimer:0,nextMemory:35,memory:null,monsters:[],pickups:[],traffic:[],pedestrians:[],particles:[],
     shake:0,red:0,biome:0,loopCount:0,loopCooldown:0,history:[],historyTimer:0};
   memory.classList.add('hidden');memoryPhase.classList.remove('hidden');doors.classList.add('hidden');death.classList.add('hidden');eventEl.textContent='';
-  for(let i=0;i<8;i++)spawnPedestrian(true);
+  for(let i=0;i<4;i++)spawnPedestrian(true);
   for(let i=0;i<4;i++)spawnTraffic();
   spawnBoost();updateHUD();draw();
 }
@@ -45,7 +45,7 @@ function updateHUD(){
 }
 function forwardPoint(distance,spread=0){return World.openPoint(game.x+Math.sin(game.heading)*distance+rand(-spread,spread),game.y-Math.cos(game.heading)*distance+rand(-spread,spread));}
 function spawnBoost(){
-  if(game.pickups.length>=8)return;
+  if(game.pickups.length>=2)return;
   const p=forwardPoint(rand(120,240),65);if(isHighway())p.x=clamp(p.x,150,490);
   game.pickups.push({...p,pulse:rand(0,6)});
 }
@@ -63,7 +63,7 @@ function updateTraffic(dt){
   game.traffic=game.traffic.filter(v=>Math.hypot(v.x-game.x,v.y-game.y)<1100);
 }
 function spawnPedestrian(initial=false){
-  if(game.pedestrians.length>=12)return;
+  if(game.pedestrians.length>=6)return;
   const p=initial?{x:game.x+rand(-400,400),y:game.y+rand(-450,450)}:forwardPoint(rand(300,550),350);
   if(!World.highway(p.x,p.y)){
     const position=World.openPoint(p.x,p.y,8),angle=rand(0,Math.PI*2);
@@ -98,10 +98,10 @@ function startChallenge(){
 }
 function transformationDuration(){return 2.8/(1.5+.5*clamp(game.time/600,0,1));}
 function spawnMonster(forceKind=null){
-  if(game.monsters.length>=3)return;
+  if(game.monsters.length>=1||game.forcedTimer>0||game.sprintWarning>0)return;
   const id=Math.floor(rand(0,40)),position=forwardPoint(rand(230,430),180),kind=forceKind||(id%9===0?'loop':'chase');
   const hidden=forceKind==='disguise'||Math.random()<.94;
-  game.monsters.push({...position,id,name:monsterTypes[id],kind,disguised:hidden,revealed:!hidden,revealProgress:hidden?0:1,revealGrace:hidden?.7:0,transformDuration:transformationDuration(),age:0,phase:0,life:1,speed:rand(85,130),path:[],repath:0,moving:false});
+  game.monsters.push({...position,id,name:monsterTypes[id],kind,disguised:hidden,revealed:!hidden,revealProgress:hidden?0:1,revealGrace:hidden?.7:0,transformDuration:transformationDuration(),age:0,phase:0,life:1,chaseAge:0,speed:rand(275,295),path:[],repath:0,moving:false});
 }
 function encounter(){spawnMonster();}
 function startMemoryGame(){
@@ -133,7 +133,7 @@ function chooseDoor(value){
 }
 function endRun(reason){
   if(!game.running)return;
-  game.running=false;game.red=.85;game.mainRush=0;game.burst=0;MiniGames.reset();
+  HorrorAudio.cue('death');game.running=false;game.red=.85;game.mainRush=0;game.burst=0;MiniGames.reset();
   clearTimeout(eventTimeout);eventEl.textContent='';
   for(const key of Object.keys(keys))delete keys[key];
   memory.classList.add('hidden');
@@ -145,8 +145,12 @@ function endRun(reason){
 
 function pursue(actor,dt,speed){
   actor.repath-=dt;
-  if(actor.repath<=0){actor.path=World.route(actor,game,10);actor.repath=.5;}
-  if(World.clear(actor.x,actor.y,game.x,game.y,10))actor.path=[{x:game.x,y:game.y}];
+  const dxGoal=game.x-actor.x,dyGoal=game.y-actor.y,distance=Math.hypot(dxGoal,dyGoal);
+  // Long off-screen pursuits use a bounded look-ahead instead of repeatedly
+  // searching beyond the local pathfinder's map when the bike boosts away.
+  const goal=distance>540?World.openPoint(actor.x+dxGoal/distance*400,actor.y+dyGoal/distance*400,10):game;
+  if(actor.repath<=0){actor.path=World.route(actor,goal,10);actor.repath=.5;}
+  if(World.clear(actor.x,actor.y,goal.x,goal.y,10))actor.path=[{x:goal.x,y:goal.y}];
   // Two push-offs per stride: a small acceleration after foot contact, then
   // coasting through the airborne phase. Animation phase follows real travel.
   const propulsion=1+.18*Math.cos((actor.phase||0)*2-.8);
@@ -161,25 +165,35 @@ function pursue(actor,dt,speed){
   actor.moving=walked>.05;actor.phase=(actor.phase||0)+walked*.1;
 }
 function updateMainWoman(dt){
-  game.mainWoman=clamp(game.time/600,0,1);
+  const stage=Math.min(5,Math.floor(game.time/120));
+  if(stage!==game.womanStage){game.womanStage=stage;game.red=.2;HorrorAudio.cue('reveal');showEvent(['','HER EYES HAVE CHANGED','SOMETHING IS GROWING FROM HER HEAD','THAT IS NOT A HUMAN SHADOW','SHE IS BREAKING APART','SHE IS NO LONGER HUMAN'][stage],2);}
+  game.mainWoman=stage<4?0:stage===4?.45:1;
   const woman=game.woman,gap=Math.hypot(woman.x-game.x,woman.y-game.y);
-  game.rushTimer-=dt;
-  if(game.rushTimer<=0){game.rushTimer=rand(40,60);game.forcedTimer=4;spawnBoost();showEvent('SHE IS RUNNING — BOOST TO ESCAPE',2);}
-  game.forcedTimer=Math.max(0,game.forcedTimer-dt);
-  // Catch-up only at long range keeps her visible without teleporting her or
-  // following the player's recorded trail. A circling rider is intercepted.
-  const speed=115+game.mainWoman*28+Math.max(0,gap-200)*6+(game.forcedTimer>0?75:0);
-  if(game.resumeGrace<=0)pursue(woman,dt,speed);else woman.moving=false;
-  if(game.resumeGrace<=0&&Math.hypot(woman.x-game.x,woman.y-game.y)<27)endRun('SHE CAUGHT YOU');
+  if(game.resumeGrace>0){woman.moving=false;return;}
+  if(game.sprintWarning>0){
+    game.sprintWarning=Math.max(0,game.sprintWarning-dt);
+    if(game.sprintWarning===0){game.forcedTimer=7;showEvent('SHE IS SPRINTING — USE YOUR SAVED BOOST',2);}
+  }else if(game.forcedTimer>0)game.forcedTimer=Math.max(0,game.forcedTimer-dt);
+  else{
+    game.rushTimer-=dt;
+    if(game.rushTimer<=0&&game.monsters.every(m=>!m.revealed||m.life<=0)){
+      game.rushTimer=rand(55,75);game.sprintWarning=2.5;HorrorAudio.cue('warning');showEvent('FOOTSTEPS BEHIND YOU — SAVE YOUR BOOST FOR HER SPRINT',2.5);
+    }
+  }
+  // Lurk beyond the camera while the rider makes progress. Stops, circles and
+  // collisions let her take the direct route and close the gap naturally.
+  const speed=game.forcedTimer>0?315:game.moving?clamp(220+(gap-620)*.5,125,290):235;
+  pursue(woman,dt,speed);
+  if(Math.hypot(woman.x-game.x,woman.y-game.y)<27)endRun('SHE CAUGHT YOU');
 }
 function rewindWorld(){
   if(game.history.length<8)return false;
   const snapshot=game.history[Math.max(0,game.history.length-28)];
   game.x=snapshot.x;game.y=snapshot.y;game.heading=snapshot.heading;game.free=snapshot.free;
-  const p=World.openPoint(game.x-Math.sin(game.heading)*285,game.y+Math.cos(game.heading)*285);
+  const p=World.openPoint(game.x-Math.sin(game.heading)*620,game.y+Math.cos(game.heading)*285);
   Object.assign(game.woman,p,{path:[],repath:0});game.monsters=[];game.pickups=[];game.pedestrians=[];game.traffic=[];
   game.history=[];game.loopCount++;game.loopCooldown=35;game.red=.8;game.shake=.35;
-  spawnBoost();for(let i=0;i<7;i++)spawnPedestrian(true);
+  spawnBoost();for(let i=0;i<4;i++)spawnPedestrian(true);
   showEvent('TIME LOOP — THE SAME LANDMARKS. AGAIN.',3);return true;
 }
 function update(dt){
@@ -199,31 +213,36 @@ function update(dt){
   updateBiome();updateMainWoman(dt);if(!game.running)return;
   for(const p of game.pickups)p.pulse+=dt;
   game.pickups=game.pickups.filter(p=>{if(Math.hypot(p.x-game.x,p.y-game.y)<30){game.boost=Math.min(1,game.boost+.35);showEvent('+35% BOOST FUEL',.8);return false;}return Math.hypot(p.x-game.x,p.y-game.y)<950;});
-  game.pickupTimer-=dt;if(game.pickupTimer<=0){spawnBoost();game.pickupTimer=3;}
+  if(game.moving)game.pickupTimer-=dt;if(game.pickupTimer<=0){spawnBoost();game.pickupTimer=rand(30,38);}
   game.trafficTimer-=dt;if(game.trafficTimer<=0){spawnTraffic();game.trafficTimer=3;}
   updateTraffic(dt);
   for(const p of game.pedestrians){const ox=p.x,oy=p.y;World.move(p,p.vx*dt,p.vy*dt,7);if(Math.hypot(p.x-ox,p.y-oy)<dt*3){p.vx*=-1;p.vy*=-1;}p.phase+=dt*4;}
   game.pedestrians=game.pedestrians.filter(p=>Math.hypot(p.x-game.x,p.y-game.y)<850);
-  game.pedestrianTimer-=dt;if(game.pedestrianTimer<=0){spawnPedestrian();game.pedestrianTimer=1.05;}
-  game.monsterTimer-=dt;if(game.monsterTimer<=0){encounter();game.monsterTimer=rand(16,24);}
+  game.pedestrianTimer-=dt;if(game.pedestrianTimer<=0){spawnPedestrian();game.pedestrianTimer=2.4;}
+  game.monsterTimer-=dt;if(game.monsterTimer<=0){encounter();game.monsterTimer=rand(38,60);}
   game.loopCooldown=Math.max(0,game.loopCooldown-dt);
   for(const m of game.monsters){
     if(m.life<=0)continue;m.age+=dt;
     const gap=Math.hypot(m.x-game.x,m.y-game.y);
     if(!m.revealed){
       World.move(m,Math.sin(m.id)*12*dt,Math.cos(m.id)*12*dt,8);m.phase+=dt*4;
-      if(gap<220){m.revealed=true;m.revealProgress=0;m.revealGrace=.7;m.transformDuration=transformationDuration();game.red=.12;showEvent('SOMETHING IS WRONG — MOVE AWAY FROM THE AMBER RING',m.transformDuration+.7);}
+      if(gap<220&&game.forcedTimer===0&&game.sprintWarning===0){m.revealed=true;m.revealProgress=0;m.revealGrace=.7;m.transformDuration=transformationDuration();HorrorAudio.cue('reveal');game.red=.12;showEvent('SOMETHING IS WRONG — MOVE AWAY FROM THE AMBER RING',m.transformDuration+.7);}
     }
     if(m.revealed){
       if(m.revealProgress<1){m.moving=false;m.revealProgress=Math.min(1,m.revealProgress+dt/(m.transformDuration||2.8));continue;}
       if(m.revealGrace>0){m.moving=false;m.revealGrace=Math.max(0,m.revealGrace-dt);continue;}
       if(game.resumeGrace>0){m.moving=false;continue;}
       if(m.kind==='loop'&&game.loopCooldown===0&&rewindWorld())break;
+      m.chaseAge=(m.chaseAge||0)+dt;
+      if(m.chaseAge>8&&gap>80){m.life=0;showEvent('IT LOST YOUR SCENT',1.4);continue;}
       pursue(m,dt,m.speed);
       if(Math.hypot(m.x-game.x,m.y-game.y)<25){endRun('CAUGHT BY '+m.name.toUpperCase());return;}
     }
   }
   game.monsters=game.monsters.filter(m=>m.life>0&&Math.hypot(m.x-game.x,m.y-game.y)<1000&&m.age<55);
+  const active=game.monsters.filter(m=>m.revealed&&m.revealProgress>=1&&m.revealGrace<=0);
+  const closest=Math.min(Math.hypot(game.woman.x-game.x,game.woman.y-game.y),...active.map(m=>Math.hypot(m.x-game.x,m.y-game.y)));
+  game.fear=Math.max(game.sprintWarning>0?.8:0,clamp(1-closest/460,0,1));
   game.historyTimer-=dt;if(game.historyTimer<=0){game.history.push({x:game.x,y:game.y,heading:game.heading,free:game.free});if(game.history.length>48)game.history.shift();game.historyTimer=.25;}
   game.nextMemory-=dt;if(game.nextMemory<=0)startChallenge();
   game.cameraX=game.x-W/2;game.cameraY=game.y-H/2;game.scroll=-game.cameraY;updateBiome();updateHUD();
@@ -236,8 +255,9 @@ function draw(){
     pedestrians:game.pedestrians.map(p=>({...p,y:p.y-game.cameraY})),monsters:game.monsters.map(p=>({...p,y:p.y-game.cameraY}))};
   PixelArt.draw(ctx,view,W,H);MonsterArt.draw(view,W,H);
 }
-function loop(t){const dt=Math.min(.04,(t-last)/1000||0);last=t;update(dt);draw();raf=requestAnimationFrame(loop);}
-function begin(){if(!MonsterArt.loaded)return;reset();game.running=true;startScreen.classList.add('hidden');death.classList.add('hidden');last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);}
+function loop(t){const dt=Math.min(.04,(t-last)/1000||0);last=t;update(dt);HorrorAudio.update(game,dt);draw();raf=requestAnimationFrame(loop);}
+function begin(){if(!MonsterArt.loaded)return;HorrorAudio.init();reset();game.running=true;startScreen.classList.add('hidden');death.classList.add('hidden');last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);}
+$('#sound-toggle').addEventListener('click',()=>{$('#sound-toggle').textContent=HorrorAudio.toggle()?'SOUND OFF':'SOUND ON';});
 start.addEventListener('click',begin);restart.addEventListener('click',begin);
 leftDoor.addEventListener('click',()=>chooseDoor(leftDoor.textContent));rightDoor.addEventListener('click',()=>chooseDoor(rightDoor.textContent));
 addEventListener('keydown',e=>{

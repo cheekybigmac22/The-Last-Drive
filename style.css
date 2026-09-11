@@ -1,4 +1,5 @@
 *{box-sizing:border-box}
+#sound-toggle{position:absolute;right:8px;bottom:8px;z-index:12;font-size:9px;padding:7px;margin:0;border-width:1px;background:#19283d}
 #boost-meter{width:90px;height:12px;accent-color:#78dbc4;border:1px solid #b6dac4;background:#27374a}
 #boost-meter::-webkit-progress-bar{background:#27374a}
 #boost-meter::-webkit-progress-value{background:#78dbc4}

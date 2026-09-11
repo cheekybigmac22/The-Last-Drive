@@ -297,6 +297,18 @@ const PixelArt = (() => {
       house(x,y,p,seed,o.biome);
       if(o.kind==='barn'){P(x-12,y+8,26,22,'#a45349');line(x-10,y+10,x+12,y+28,cream,2);line(x+12,y+10,x-10,y+28,cream,2);}
       if(o.kind==='cabin')for(let j=0;j<5;j++)P(x-32,y-42+j*6,66,4,'#e4efdf');
+    }else if(o.kind==='watcher'){
+      frame(x-15,y-48,30,74,ink,'#30283d');line(x-12,y-43,x+8,y+19,'#705268',3);
+      oval(x,y-34,23,17,'#191b2b');oval(x,y-35,17,9,'#bbb7b1');oval(x+seed%5-2,y-35,5,9,'#171623');
+      for(let i=0;i<5;i++)line(x-16+i*8,y+20,x-25+i*12,y+34,'#211c30',4);
+    }else if(o.kind==='gate'){
+      frame(x-42,y-55,16,84,ink,'#625068');frame(x+28,y-65,16,94,ink,'#625068');
+      line(x-38,y-54,x+2,y-82,'#8d7585',12);line(x+2,y-82,x+36,y-65,'#8d7585',12);
+      for(let i=0;i<5;i++)line(x-23+i*12,y-51,x-23+i*12,y+23,'#33263b',3);
+      oval(x+2,y-68,9,5,'#c7bba5');P(x,y-72,3,9,'#332435');
+    }else if(o.kind==='obelisk'){
+      for(let i=0;i<22;i++){const w=16+i;P(x-w/2,y-85+i*5,w,5,i%4?'#312737':'#816171');}
+      for(let i=0;i<4;i++){P(x-5,y-57+i*15,10,2,'#bb798c');P(x+2,y-55+i*15,2,6,'#bb798c');}
     }else if(o.kind==='tree')tree(x,y,p,seed);
     else if(o.kind==='palm')palm(x,y,p);
     else if(o.kind==='cactus')cactus(x,y);
@@ -368,7 +380,14 @@ const PixelArt = (() => {
     }
     const wy=g.woman.y,wx=g.woman.x;
     const womanAlpha=g.mainWoman;
-    if(womanAlpha<1)actors.push({y:wy+20,draw:()=>{c.save();c.globalAlpha=1-womanAlpha;c.translate(wx,wy);c.scale(1,1+womanAlpha*.4);person(0,0,40,g.woman.phase);c.restore();}});
+    if(womanAlpha<1)actors.push({y:wy+20,draw:()=>{
+      c.save();c.globalAlpha=1-womanAlpha;c.translate(wx,wy);c.scale(1,1+womanAlpha*.4);
+      if(g.womanStage>=3){line(4,15,28,28,'#241b32',5);line(28,28,38,12,'#241b32',4);line(38,12,29,1,'#241b32',3);}
+      person(0,0,40,g.woman.phase);
+      if(g.womanStage>=1){P(-4,-20,3,3,'#f5d5bb');P(3,-20,3,3,'#f5d5bb');}
+      if(g.womanStage>=2){line(-7,-23,-15,-40,'#bbb0ac',4);line(8,-23,17,-40,'#bbb0ac',4);}
+      c.restore();
+    }});
     actors.push({y:H/2+24,draw:()=>{c.save();c.translate(g.x,H/2);c.rotate(g.heading);bike(0,0,0,g.moving?g.burst:0,g.time);c.restore();}});
     actors.sort((a,b)=>a.y-b.y).forEach(a=>a.draw());
     for(const part of g.particles)P(part.x,part.y,2,4,part.kind==='boost'?'#edc96f':'#749096');
@@ -383,7 +402,8 @@ const PixelArt = (() => {
       let light=Math.max(0,1-d/125)*.28;
       if(along>0&&along<360&&across<28+along*.32)light=Math.max(light,.49*(1-along/480)*(1-across/(36+along*.42)));
       for(const m of glows){const distance=Math.hypot(x+6-(m.x-g.cameraX),y+6-m.y);light=Math.max(light,Math.max(0,1-distance/90)*.35);}
-      P(x,y,12,12,'rgba(5,9,27,'+Math.max(.15,.66-light)+')');
+      const edge=Math.min(1,d/350),fear=g.fear||0;
+      P(x,y,12,12,'rgba('+(fear>.3?'24,4,20,':'5,9,27,')+Math.min(.9,Math.max(.18,.77-light+fear*edge*.09))+')');
     }
     c.restore();
     target.setTransform(1,0,0,1,0,0);target.imageSmoothingEnabled=false;
